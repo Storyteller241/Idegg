@@ -1,0 +1,63 @@
+---
+description: 
+alwaysApply: true
+enabled: true
+updatedAt: 2026-04-17T02:45:36.553Z
+provider: 
+---
+
+1. 项目愿景
+创建一个极简、大气的 3D Idea 协作空间。核心隐喻是“Idea 蛋”，通过代码驱动的材质变化（非切图）来展示点子的生命周期。
+
+2. 技术栈约束
+前端: Vue 3 (Setup API) + TypeScript + Vite
+
+3D 引擎: TresJS (Vue 生态下的 Three.js 封装)
+
+UI 组件: TDesign (用于输入框和基础弹窗)
+
+自适应: 采用之前项目经验中的 rem 适配或全屏 vh/vw 布局。
+
+3. 核心对象：IdeaEgg.vue (3D 组件)
+几何体: SphereGeometry。通过 scale 属性在 Y 轴拉长 (例如 [1, 1.25, 1])。
+
+状态与材质 (代码控制):
+
+Level 0 (Fresh): 颜色 #FFFFFF，roughness: 0.1。
+
+Level 1 (Aging): 颜色从 #FFFFFF 向 #FFFFE0 (淡黄) 线性插值。
+
+Level 2 (Spoiled): 颜色 #556B2F (墨绿)，roughness: 0.8。
+
+Level 3 (Incubated): 蛋恢复白色，外层增加一个 BoxGeometry 线框 (wireframe)，颜色 #00FFFF，带呼吸动画。
+
+预留接口: 组件需接收 ideaData Prop，包含 createTime 和 status。
+
+4. AI 模块规约 (预留口子)
+前端 Service: 创建 aiService.ts。
+
+Mock 逻辑: * 当前点击“分析”时，延迟 1.5 秒（模拟网络请求）。
+
+随机返回一个 feasibilityScore (0-100) 和 tags。
+
+待对接标记: 在代码中统一标注 // TODO: Integrate SiliconFlow API。
+
+5. 交互与布局规则
+场景背景: 纯深色背景 #0a0a0a。
+
+布局: * 左上角：极简的输入框 (TDesign Input)，用于录入新 Idea。
+
+主体：3D Canvas 容器，展示 Idea 蛋池。
+
+点击蛋：弹出简约的 TDesign Card，展示模拟的 AI 分析数据。
+
+协作模拟: * 通过 localStorage 或简单的 Socket.io 实现本地/多端同步。
+
+每一个蛋需要一个 userId 标记，属于朋友的蛋可以加一个极细的边缘发光（Emissive）。
+
+6. 工程化要求
+Zero-Assets: 严禁使用任何外部图片、贴图或 .obj 模型。
+
+Shader-Free: 优先使用 Three.js 标准材质属性，确保性能和兼容性。
+
+TypeScript: 所有数据接口必须有严格的 interface 定义。
