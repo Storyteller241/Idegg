@@ -8,6 +8,7 @@
     <!-- 3D 场景层 -->
     <div class="scene-layer">
       <TresCanvas
+        :key="sceneKey"
         v-bind="canvasConfig"
         window-size
       >
@@ -63,10 +64,10 @@
           <TresMeshBasicMaterial :color="'#0a0a0a'" transparent :opacity="0" />
         </TresMesh>
 
-        <!-- Idea 蛋池 - 渲染所有蛋，搜索过滤在组件内部处理 -->
+        <!-- Idea 蛋池 - 渲染所有蛋，key 使用蛋池ID+蛋ID确保切换时强制重新渲染 -->
         <IdeaEgg
           v-for="idea in renderIdeas"
-          :key="idea.id"
+          :key="`${currentPoolId}-${idea.id}`"
           :idea-data="idea"
           :search-keyword="searchKeyword"
           @click="handleEggClick(idea)"
@@ -462,6 +463,7 @@ const handlePoolChange = async (poolId: number | null) => {
 // 丝滑切换到指定蛋池
 const isSwitchingPool = ref(false)
 const poolLoading = ref(false)
+const sceneKey = ref(0)
 
 const switchToPool = async (poolId: number | null) => {
   if (isSwitchingPool.value) return
@@ -471,15 +473,18 @@ const switchToPool = async (poolId: number | null) => {
   poolLoading.value = true
   
   try {
-    // 1. 清理物理世界和场景
+    // 1. 更新 sceneKey 强制重新渲染整个 3D 场景
+    sceneKey.value++
+    
+    // 2. 清理物理世界和数据
     destroyPhysics()
     ideas.value = []
     await new Promise(resolve => setTimeout(resolve, 50))
     
-    // 2. 重新初始化物理世界
+    // 3. 重新初始化物理世界
     initPhysics()
     
-    // 3. 更新当前蛋池ID
+    // 4. 更新当前蛋池ID
     currentPoolId.value = poolId
     
     // 4. 加载新蛋池数据
