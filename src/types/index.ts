@@ -1,9 +1,22 @@
-// Idea 数据结构（简化版）
+// Idea 数据结构
 export interface Idea {
   id: string
+  dbId?: number  // 数据库ID
   title: string
+  content?: string
   createTime: number
   position: [number, number, number]
+  status: 'active' | 'broken'
+  displayColor?: string  // 后端返回的颜色
+  eggStatus?: string     // 后端返回的状态
+}
+
+// 人类评分数据
+export interface HumanRating {
+  score: number          // 当前用户的评分（如果已评）
+  average: number | null // 平均分
+  count: number          // 评分人数
+  hasRated: boolean      // 当前用户是否已评分
 }
 
 // 蛋的颜色状态

@@ -1,4 +1,4 @@
-import { onMounted, onUnmounted } from 'vue'
+// import { onMounted, onUnmounted } from 'vue'
 import * as CANNON from 'cannon-es'
 
 // 物理世界实例
