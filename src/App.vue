@@ -37,14 +37,13 @@
 
         <!-- 地面（可视化） - 旋转90度使其水平 -->
         <TresMesh :position="[0, -2, 0]" :rotation="[-Math.PI / 2, 0, 0]" receive-shadow>
-  <TresCircleGeometry :args="[25, 64]" /> 
-  
-  <TresMeshStandardMaterial
-    :color="'#a1c6e7'"
-    :roughness="0.8"
-    :side="2" 
-  />
-</TresMesh>
+          <TresCircleGeometry :args="[25, 64]" />
+          <TresMeshStandardMaterial
+            :color="'#a1c6e7'"
+            :roughness="0.8"
+            :side="2"
+          />
+        </TresMesh>
 
         <!-- 边界墙（防止蛋滚太远） -->
         <TresMesh :position="[0, -1, -10]">
@@ -88,22 +87,45 @@
 
     <!-- UI 覆盖层 -->
     <div class="ui-overlay">
-      <!-- 顶部搜索区 -->
-      <div class="search-section">
-        <div class="search-wrapper">
-          <t-input
-            v-model="searchKeyword"
-            placeholder="搜索 Idea..."
-            size="large"
-            clearable
-          >
-            <template #prefix-icon>
-              <svg class="search-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="11" cy="11" r="8" />
-                <path d="M21 21l-4.35-4.35" />
-              </svg>
-            </template>
-          </t-input>
+      <!-- 左上角搜索和蛋池标识 -->
+      <div class="top-left-section">
+        <!-- 搜索图标 -->
+        <div 
+          class="search-icon-btn"
+          @mouseenter="isSearchHovered = true"
+          @mouseleave="isSearchHovered = false"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8" />
+            <path d="M21 21l-4.35-4.35" />
+          </svg>
+          
+          <!-- hover 展开的搜索框 -->
+          <transition name="search-expand">
+            <div v-if="isSearchHovered" class="search-expand-wrapper">
+              <t-input
+                v-model="searchKeyword"
+                placeholder="搜索 Idea..."
+                size="large"
+                clearable
+                autofocus
+                class="search-expand-input"
+              />
+            </div>
+          </transition>
+        </div>
+        
+        <!-- 当前蛋池名称 / 切换中状态 -->
+        <div v-if="isSwitchingPool" class="pool-status-text switching">
+          <span class="loading-dot"></span>
+          切换中...
+        </div>
+        <div v-else-if="currentPool" class="pool-status-text active">
+          <span class="pool-icon-small">{{ currentPool.type === 'public' ? '🌐' : '🔒' }}</span>
+          {{ currentPool.name }}
+        </div>
+        <div v-else class="pool-status-text">
+          未选择蛋池
         </div>
       </div>
 
@@ -121,42 +143,43 @@
         <!-- 扇形展开的功能按钮 -->
         <transition-group name="fan">
           <template v-if="isFabHovered">
-            <!-- 功能1：分析（占位）- 最上方 -->
+            <!-- 功能1：创建蛋池 - 最上方 -->
+            <div 
+              key="createPool" 
+              class="fab-item" 
+              title="创建蛋池"
+              :style="{ transform: 'translate(-70px, -70px)' }"
+              @click="showCreatePoolDialog = true"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="16"/>
+                <line x1="8" y1="12" x2="16" y2="12"/>
+              </svg>
+            </div>
+            <!-- 功能2：分析（占位）- 左上 -->
             <div 
               key="analyze" 
               class="fab-item" 
               title="AI分析"
-              :style="{ transform: 'translate(-70px, -70px)' }"
+              :style="{ transform: 'translate(-100px, -25px)' }"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
               </svg>
             </div>
-            <!-- 功能2：协作（占位）- 左上 -->
+            <!-- 功能3：协作（占位）- 左下 -->
             <div 
               key="collab" 
               class="fab-item" 
               title="协作"
-              :style="{ transform: 'translate(-100px, -25px)' }"
+              :style="{ transform: 'translate(-100px, 25px)' }"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
                 <circle cx="9" cy="7" r="4"/>
                 <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
                 <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-              </svg>
-            </div>
-            <!-- 功能3：统计（占位）- 左下 -->
-            <div 
-              key="stats" 
-              class="fab-item" 
-              title="统计"
-              :style="{ transform: 'translate(-100px, 25px)' }"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="18" y1="20" x2="18" y2="10"/>
-                <line x1="12" y1="20" x2="12" y2="4"/>
-                <line x1="6" y1="20" x2="6" y2="14"/>
               </svg>
             </div>
             <!-- 功能4：新增Idea - 最下方 -->
@@ -221,6 +244,39 @@
       </template>
     </t-dialog>
 
+    <!-- 创建蛋池弹窗 -->
+    <t-dialog
+      v-model:visible="showCreatePoolDialog"
+      header="创建新蛋池"
+      :width="480"
+      :close-on-overlay-click="true"
+      :destroy-on-close="true"
+      class="glass-dialog"
+    >
+      <div class="dialog-content">
+        <t-input
+          v-model="newPoolName"
+          placeholder="请输入蛋池名称..."
+          size="large"
+          clearable
+          class="dialog-input"
+        />
+        <div class="pool-type-hint">
+          私有蛋池：只有被邀请的成员才能查看，每人最多可创建 3 个
+        </div>
+      </div>
+      <template #footer>
+        <div class="dialog-footer">
+          <t-button theme="default" variant="outline" size="large" @click="showCreatePoolDialog = false">
+            取消
+          </t-button>
+          <t-button theme="primary" size="large" @click="handleCreatePool">
+            创建
+          </t-button>
+        </div>
+      </template>
+    </t-dialog>
+
     <!-- Idea 详情弹窗 -->
     <IdeaDetailCard
       v-model:visible="detailVisible"
@@ -230,15 +286,59 @@
 
     <!-- 用户头像 -->
     <UserAvatar
+      class="user-avatar"
       v-if="isLoggedIn"
       @click="showProfileDrawer = true"
     />
+
+    <!-- 切换蛋池按钮 - 仅当有多个蛋池时显示 -->
+    <div
+      v-if="isLoggedIn && pools.length > 1"
+      class="pool-switch-btn"
+      @click="showPoolSwitchDrawer = true"
+      title="切换蛋池"
+    >
+      <span class="pool-icon">{{ currentPool?.type === 'public' ? '🌐' : '🔒' }}</span>
+      <span class="pool-name-short">{{ currentPool?.name?.slice(0, 2) || '蛋池' }}</span>
+    </div>
 
     <!-- 个人中心抽屉 -->
     <UserProfileDrawer
       v-model:visible="showProfileDrawer"
       @logout="handleLogout"
     />
+
+    <!-- 切换蛋池抽屉 -->
+    <t-drawer
+      v-model:visible="showPoolSwitchDrawer"
+      header="切换蛋池"
+      :width="320"
+      :close-on-overlay-click="true"
+      class="pool-drawer"
+    >
+      <div class="pool-list">
+        <div
+          v-for="pool in pools"
+          :key="pool.id"
+          class="pool-list-item"
+          :class="{ 'pool-list-item-active': pool.id === currentPoolId }"
+          @click="switchToPool(pool.id); showPoolSwitchDrawer = false"
+        >
+          <div class="pool-item-info">
+            <span class="pool-item-icon">{{ pool.type === 'public' ? '🌐' : '🔒' }}</span>
+            <div class="pool-item-details">
+              <div class="pool-item-name">{{ pool.name }}</div>
+              <div class="pool-item-meta">
+                <span class="pool-item-type">{{ pool.type === 'public' ? '公共' : '私人' }}</span>
+                <span v-if="pool.is_owner" class="pool-item-owner">创建者</span>
+              </div>
+            </div>
+          </div>
+          <div v-if="pool.id === currentPoolId" class="pool-item-check">✓</div>
+        </div>
+      </div>
+    </t-drawer>
+
     </div>
   </div>
 </template>
@@ -247,6 +347,7 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { TresCanvas } from '@tresjs/core'
 import { OrbitControls } from '@tresjs/cientos'
+import { MessagePlugin } from 'tdesign-vue-next'
 import { useUserStore } from './stores/user'
 import Login from './components/Login.vue'
 import UserAvatar from './components/UserAvatar.vue'
@@ -254,7 +355,7 @@ import UserProfileDrawer from './components/UserProfileDrawer.vue'
 import IdeaEgg from './components/three/IdeaEgg.vue'
 import IdeaDetailCard from './components/ui/IdeaDetailCard.vue'
 import { initPhysics, destroyPhysics } from './composables/usePhysics'
-import { eggApi } from './api/eggApi'
+import { eggApi, type EggPool } from './api/eggApi'
 import type { Idea } from './types'
 
 const userStore = useUserStore()
@@ -279,7 +380,8 @@ const handleLoginSuccess = () => {
   isLoggedIn.value = true
   // 初始化物理世界
   initPhysics()
-  loadEggs()
+  // 加载蛋池列表和蛋数据
+  loadPools()
 }
 
 // Canvas 配置
@@ -298,8 +400,134 @@ const ideas = ref<Idea[]>([])
 const detailVisible = ref(false)
 const selectedIdea = ref<Idea | null>(null)
 const isFabHovered = ref(false)
+const isSearchHovered = ref(false)
 const addDialogVisible = ref(false)
 const showProfileDrawer = ref(false)
+const showPoolSwitchDrawer = ref(false)
+
+// ========== 蛋池相关状态 ==========
+const pools = ref<EggPool[]>([])
+const currentPoolId = ref<number | null>(null)
+const currentPool = computed(() => pools.value.find(p => p.id === currentPoolId.value))
+// 计算用户创建的私人蛋池数量
+const privatePoolCount = computed(() => 
+  pools.value.filter(p => p.type === 'private' && p.is_owner).length
+)
+const showCreatePoolDialog = ref(false)
+const newPoolName = ref('')
+const newPoolType = ref<'private'>('private')
+const isLoadingPools = ref(false)
+
+// 加载蛋池列表
+const loadPools = async () => {
+  if (!isLoggedIn.value) return
+  
+  isLoadingPools.value = true
+  try {
+    const result = await eggApi.getPools()
+    pools.value = result.data
+    
+    // 如果没有选择当前蛋池，默认选择公共蛋池
+    if (!currentPoolId.value && pools.value.length > 0) {
+      const publicPool = pools.value.find(p => p.type === 'public')
+      const targetPoolId = publicPool?.id || pools.value[0].id
+      await switchToPool(targetPoolId)
+    }
+  } catch (error: any) {
+    console.error('加载蛋池列表失败:', error)
+  } finally {
+    isLoadingPools.value = false
+  }
+}
+
+// 切换蛋池 - 丝滑过渡
+const handlePoolChange = async (poolId: number | null) => {
+  if (poolId === currentPoolId.value) return
+  await switchToPool(poolId)
+}
+
+// 丝滑切换到指定蛋池
+const isSwitchingPool = ref(false)
+const switchToPool = async (poolId: number | null) => {
+  if (isSwitchingPool.value) return
+  if (poolId === currentPoolId.value && ideas.value.length > 0) return
+  
+  isSwitchingPool.value = true
+  
+  try {
+    // 1. 先清空当前场景（给 Vue 一个 tick 时间来清理 DOM）
+    ideas.value = []
+    
+    // 2. 等待一小段时间让 3D 场景清理完成
+    await new Promise(resolve => setTimeout(resolve, 100))
+    
+    // 3. 更新当前蛋池ID
+    currentPoolId.value = poolId
+    
+    // 4. 加载新蛋池数据
+    if (poolId) {
+      await loadEggsByPool(poolId)
+    } else {
+      await loadEggs()
+    }
+  } catch (error) {
+    console.error('切换蛋池失败:', error)
+  } finally {
+    isSwitchingPool.value = false
+  }
+}
+
+// 加载指定蛋池的蛋
+const loadEggsByPool = async (poolId: number) => {
+  try {
+    const eggs = await eggApi.getEggsByPool(poolId)
+    // 转换数据库格式为前端格式
+    ideas.value = eggs.map(egg => ({
+      id: `egg-${egg.id}`,
+      dbId: Number(egg.id),
+      title: egg.name,
+      content: '',
+      createTime: new Date(egg.created_at || Date.now()).getTime(),
+      position: [Number(egg.pos_x), Number(egg.pos_y), Number(egg.pos_z)] as [number, number, number],
+      status: 'active',
+      displayColor: egg.displayColor,
+      eggStatus: egg.status
+    }))
+  } catch (error) {
+    console.error('加载蛋池蛋数据失败:', error)
+  }
+}
+
+// 创建蛋池（只能是私有蛋池，每人最多3个）
+const handleCreatePool = async () => {
+  const name = newPoolName.value.trim()
+  if (!name) {
+    MessagePlugin.warning('请输入蛋池名称')
+    return
+  }
+  
+  // 检查私有蛋池数量限制（最多3个）
+  if (privatePoolCount.value >= 3) {
+    MessagePlugin.warning('每人最多只能创建3个私有蛋池')
+    return
+  }
+  
+  try {
+    // 固定创建私有蛋池
+    const result = await eggApi.createPool(name, 'private')
+    MessagePlugin.success('蛋池创建成功')
+    showCreatePoolDialog.value = false
+    newPoolName.value = ''
+    // 刷新蛋池列表
+    await loadPools()
+    // 自动切换到新创建的蛋池
+    if (result.data?.id) {
+      await switchToPool(result.data.id)
+    }
+  } catch (error: any) {
+    MessagePlugin.error(error.message || '创建蛋池失败')
+  }
+}
 
 // 显示新增弹窗
 const showAddDialog = () => {
@@ -363,6 +591,19 @@ const handleCreateIdea = async () => {
   const title = newIdeaTitle.value.trim()
   if (!title) return
 
+  // 如果没有选中蛋池，尝试选择第一个
+  if (!currentPoolId.value && pools.value.length > 0) {
+    currentPoolId.value = pools.value[0].id
+  }
+
+  // 如果仍然没有蛋池，提示创建蛋池
+  if (!currentPoolId.value) {
+    MessagePlugin.warning('请先创建一个蛋池')
+    addDialogVisible.value = false
+    showCreatePoolDialog.value = true
+    return
+  }
+
   const position = generateRandomPosition()
 
   try {
@@ -373,6 +614,7 @@ const handleCreateIdea = async () => {
       pos_x: position[0],
       pos_y: 6, // 从高处掉落
       pos_z: position[2],
+      pool_id: currentPoolId.value, // 指定当前选中的蛋池
     })
 
     console.log('数据库保存结果:', result)
@@ -489,11 +731,143 @@ const handleLogout = () => {
 }
 
 // 搜索区域
+// 顶部区域（蛋池选择 + 搜索）
+.top-section {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding-top: 20px;
+}
+
+// 蛋池选择区域
+.pool-section {
+  pointer-events: auto;
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.pool-display {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  color: #333;
+  
+  .pool-icon-large {
+    font-size: 18px;
+  }
+  
+  .current-pool-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: #333;
+  }
+}
+
+.pool-selector {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  width: 400px;
+  :deep(.t-popup) {
+    background-color: #fff;
+  }
+  :deep(.t-popup__content) {
+    background-color: #fff;
+  }
+  :deep(.t-select__dropdown-inner) {
+       background-color: #fff;
+    }
+  :deep(.t-select) {
+    flex: 1;
+    
+    .t-input {
+      background: rgba(255, 255, 255, 0.15);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 12px;
+      color: #333;
+      
+      &:hover, &.t-is-focused {
+        background: rgba(255, 255, 255, 0.25);
+      }
+    }
+    
+    .t-input__inner {
+      color: #333;
+    }
+
+  }
+
+  .t-button {
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #333;
+    border-radius: 12px;
+    
+    &:hover {
+      background: rgba(255, 255, 255, 0.25);
+    }
+  }
+}
+
+.pool-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pool-icon {
+  font-size: 16px;
+}
+
+.pool-name {
+  flex: 1;
+}
+
+.pool-badge {
+  font-size: 11px;
+  color: #00c8ff;
+  background: rgba(0, 200, 255, 0.1);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+// 蛋池类型选择器样式
+.pool-type-selector {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.pool-type-label {
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.pool-type-hint {
+  margin-top: 8px;
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.5);
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 8px;
+}
+
 .search-section {
   pointer-events: auto;
   display: flex;
   justify-content: center;
-  padding-top: 20px;
 }
 
 .search-wrapper {
@@ -529,10 +903,138 @@ const handleLogout = () => {
   }
 }
 
+// 左上角搜索区域
+.top-left-section {
+  position: absolute;
+  top: 24px;
+  left: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  z-index: 100;
+  pointer-events: auto;
+}
+
+// 搜索图标按钮
+.search-icon-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+  position: relative;
+  
+  svg {
+    width: 20px;
+    height: 20px;
+    color: rgba(255, 255, 255, 0.9);
+  }
+  
+  &:hover {
+    background: rgba(255, 255, 255, 0.25);
+    box-shadow: 0 6px 30px rgba(0, 0, 0, 0.2);
+  }
+}
+
+// 展开的搜索框容器
+.search-expand-wrapper {
+  position: absolute;
+  left: 50px;
+  top: 0;
+  width: 300px;
+}
+
+// 展开搜索框的输入样式
+.search-expand-input {
+  :deep(.t-input) {
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 12px;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+    
+    .t-input__inner {
+      color: #333;
+    }
+    
+    &::placeholder {
+      color: rgba(0, 0, 0, 0.4);
+    }
+    
+    &:hover, &.t-is-focused {
+      background: rgba(255, 255, 255, 0.25);
+    }
+  }
+}
+
+// 搜索展开动画
+.search-expand-enter-active,
+.search-expand-leave-active {
+  transition: all 0.3s ease;
+}
+
+.search-expand-enter-from,
+.search-expand-leave-to {
+  opacity: 0;
+  transform: translateX(-10px);
+}
+
+// 蛋池状态提示文字
+.pool-status-text {
+  font-size: 12px;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.3s ease;
+  
+  &.active {
+    background: rgba(0, 200, 255, 0.2);
+    border: 1px solid rgba(0, 200, 255, 0.3);
+  }
+  
+  &.switching {
+    background: rgba(255, 200, 0, 0.2);
+    border: 1px solid rgba(255, 200, 0, 0.3);
+  }
+  
+  .pool-icon-small {
+    font-size: 10px;
+  }
+  
+  .loading-dot {
+    width: 6px;
+    height: 6px;
+    background: #ffc800;
+    border-radius: 50%;
+    animation: pulse 1s infinite;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.8); }
+}
+
 .hint-text {
   position: absolute;
   top: 24px;
-  right: 24px;
+  right: 100px;
   font-size: 12px;
   color: rgba(255, 255, 255, 0.5);
   pointer-events: auto;
@@ -656,11 +1158,11 @@ const handleLogout = () => {
   }
 }
 
-// 磨砂弹窗样式
+// 磨砂弹窗样式 - 白色磨砂基调
 ::deep(.glass-dialog) {
   .t-dialog__wrap {
-    background: rgba(0, 0, 0, 0.4);
-    backdrop-filter: blur(4px);
+    background: rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(8px);
   }
   
   .t-dialog__position {
@@ -668,61 +1170,65 @@ const handleLogout = () => {
   }
   
   .t-dialog {
-    background: rgba(30, 30, 40, 0.85);
+    background: rgba(255, 255, 255, 0.85);
     backdrop-filter: blur(30px);
     -webkit-backdrop-filter: blur(30px);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 16px;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    border-radius: 20px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
   }
   
   .t-dialog__header {
-    color: #fff;
+    color: rgba(0, 0, 0, 0.85);
     font-size: 18px;
-    font-weight: 500;
+    font-weight: 600;
     padding: 20px 24px 16px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
   }
   
   .t-dialog__body {
     padding: 24px;
+    color: rgba(0, 0, 0, 0.65);
   }
   
   .t-dialog__footer {
     padding: 16px 24px 20px;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    border-top: 1px solid rgba(0, 0, 0, 0.08);
     
     .t-button {
-      border-radius: 8px;
+      border-radius: 10px;
       
       &--variant-outline {
-        background: transparent;
-        border-color: rgba(255, 255, 255, 0.3);
-        color: rgba(255, 255, 255, 0.8);
+        background: rgba(255, 255, 255, 0.6);
+        border-color: rgba(0, 0, 0, 0.15);
+        color: rgba(0, 0, 0, 0.7);
         
         &:hover {
-          background: rgba(255, 255, 255, 0.1);
-          border-color: rgba(255, 255, 255, 0.5);
+          background: rgba(255, 255, 255, 0.9);
+          border-color: rgba(0, 0, 0, 0.25);
+          color: rgba(0, 0, 0, 0.85);
         }
       }
       
       &--theme-primary {
         background: linear-gradient(135deg, #00c8ff, #0096ff);
         border: none;
+        color: #fff;
         
         &:hover {
           background: linear-gradient(135deg, #00d4ff, #00a8ff);
+          box-shadow: 0 4px 15px rgba(0, 150, 255, 0.4);
         }
       }
     }
   }
   
   .t-dialog__close {
-    color: rgba(255, 255, 255, 0.6);
+    color: rgba(0, 0, 0, 0.4);
     
     &:hover {
-      color: #fff;
-      background: rgba(255, 255, 255, 0.1);
+      color: rgba(0, 0, 0, 0.7);
+      background: rgba(0, 0, 0, 0.05);
     }
   }
 }
@@ -735,30 +1241,49 @@ const handleLogout = () => {
 
 .dialog-input {
   :deep(.t-input) {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.15);
-    color: #fff;
+    background: rgba(0, 0, 0, 0.03);
+    border-color: rgba(0, 0, 0, 0.1);
+    color: rgba(0, 0, 0, 0.85);
+    border-radius: 10px;
     
     &::placeholder {
-      color: rgba(255, 255, 255, 0.4);
+      color: rgba(0, 0, 0, 0.35);
+    }
+    
+    &:hover {
+      background: rgba(0, 0, 0, 0.05);
+      border-color: rgba(0, 0, 0, 0.15);
     }
     
     &:focus {
-      border-color: rgba(0, 200, 255, 0.5);
-      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(0, 200, 255, 0.6);
+      background: rgba(255, 255, 255, 0.8);
+      box-shadow: 0 0 0 3px rgba(0, 200, 255, 0.1);
     }
   }
 }
 
 .dialog-textarea {
   :deep(.t-textarea__inner) {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.15);
-    color: #fff;
+    background: rgba(0, 0, 0, 0.03);
+    border-color: rgba(0, 0, 0, 0.1);
+    color: rgba(0, 0, 0, 0.85);
     resize: none;
+    border-radius: 10px;
     
     &::placeholder {
-      color: rgba(255, 255, 255, 0.4);
+      color: rgba(0, 0, 0, 0.35);
+    }
+    
+    &:hover {
+      background: rgba(0, 0, 0, 0.05);
+      border-color: rgba(0, 0, 0, 0.15);
+    }
+    
+    &:focus {
+      border-color: rgba(0, 200, 255, 0.6);
+      background: rgba(255, 255, 255, 0.8);
+      box-shadow: 0 0 0 3px rgba(0, 200, 255, 0.1);
     }
     
     &:focus {
@@ -775,5 +1300,154 @@ const handleLogout = () => {
 }
 ::deep(.t-input__inner) {
     color: #000 !important;
+}
+
+// 切换蛋池按钮（固定在头像下方）
+.pool-switch-btn {
+  position: fixed;
+  right: 40px;
+  top: calc(50% + 50px);
+  transform: translateY(-50%);
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  pointer-events: auto;
+  z-index: 99;
+  transition: all 0.3s ease;
+  
+  .pool-icon {
+    font-size: 14px;
+    line-height: 1;
+  }
+  
+  .pool-name-short {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.8);
+    margin-top: 2px;
+    max-width: 36px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  
+  &:hover {
+    background: rgba(255, 255, 255, 0.25);
+    box-shadow: 0 6px 30px rgba(0, 0, 0, 0.2);
+    transform: translateY(-50%) scale(1.05);
+  }
+}
+.user-avatar {
+    z-index:1000;
+}
+
+// 蛋池抽屉样式 - 白色磨砂基调
+.pool-drawer {
+  :deep(.t-drawer__content) {
+    background: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(30px);
+    -webkit-backdrop-filter: blur(30px);
+    border-left: 1px solid rgba(255, 255, 255, 0.5);
+  }
+  
+  :deep(.t-drawer__header) {
+    color: rgba(0, 0, 0, 0.85);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+    font-weight: 600;
+  }
+  
+  :deep(.t-drawer__close-btn) {
+    color: rgba(0, 0, 0, 0.4);
+    
+    &:hover {
+      color: rgba(0, 0, 0, 0.7);
+      background: rgba(0, 0, 0, 0.05);
+    }
+  }
+}
+
+.pool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pool-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 14px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  
+  &:hover {
+    background: rgba(255, 255, 255, 0.9);
+    border-color: rgba(0, 0, 0, 0.15);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+  }
+  
+  &.pool-list-item-active {
+    background: linear-gradient(135deg, rgba(0, 200, 255, 0.15), rgba(0, 150, 255, 0.1));
+    border-color: rgba(0, 200, 255, 0.4);
+    box-shadow: 0 4px 15px rgba(0, 150, 255, 0.15);
+  }
+}
+
+.pool-item-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.pool-item-icon {
+  font-size: 20px;
+}
+
+.pool-item-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pool-item-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.pool-item-meta {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.pool-item-owner {
+  color: #0096ff;
+  font-weight: 500;
+}
+
+.pool-item-check {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #00c8ff, #0096ff);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: #fff;
 }
 </style>

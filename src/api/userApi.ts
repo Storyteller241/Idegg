@@ -1,6 +1,6 @@
 import type { User } from '../stores/user'
 
-const API_BASE_URL = 'http://101.133.231.222:3000/api'
+const API_BASE_URL = `${import.meta.env.VITE_API_BASE_URL}/api`
 
 export interface LoginData {
   username: string

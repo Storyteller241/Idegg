@@ -25,7 +25,7 @@ const emit = defineEmits<{
 
 const userStore = useUserStore()
 const isHovered = ref(false)
-const API_BASE_URL = 'http://101.133.231.222:3000'
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
 
 const displayName = computed(() => {
   return userStore.user?.username || 'User'

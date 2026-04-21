@@ -29,11 +29,69 @@ body {
   display: none;
 }
 
+// 磨砂玻璃变量
+@glass-bg: rgba(255, 255, 255, 0.25);    // 背景色
+@glass-blur: 15px;                        // 模糊程度
+@glass-border: rgba(255, 255, 255, 0.2); // 边框颜色
+@glow-color: rgba(255, 255, 255, 0.7);   // 边缘发光颜色
+
+// 混合：实现发光与厚度的多层阴影
+.glass-thickness(@glow: @glow-color) {
+  box-shadow: 
+    0 0 2px 2px @glow,                   // 外部边缘发光
+    inset 0 0 12px 1px rgba(255, 255, 255, 0.3), // 内部高光体现厚度
+    0 10px 30px rgba(0, 0, 0, 0.2);       // 下方深色投影体现悬浮感
+}
+
+.t-dialog {
+  // 基础磨砂底座
+  position: relative;
+  background-color: @glass-bg;
+  border-radius: 16px;
+  border: 1px solid @glass-border;
+  
+  // 磨砂效果（兼容性写法）
+  backdrop-filter: blur(@glass-blur) saturate(180%);
+  -webkit-backdrop-filter: blur(@glass-blur) saturate(180%);
+  
+  // 核心视觉：厚度与发光
+  .glass-thickness(@glow-color);
+
+  // 内部布局嵌套
+  &-header {
+    padding: 20px 24px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    font-weight: 600;
+    color: #fff;
+  }
+
+  &-body {
+    padding: 24px;
+    color: rgba(255, 255, 255, 0.9);
+    line-height: 1.6;
+  }
+
+  &-footer {
+    padding: 16px 24px;
+    background: rgba(0, 0, 0, 0.05); // 底部轻微压暗
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  // 特殊状态：如果是危险/警告类型的对话框，可以一键改发光颜色
+  &--warning {
+    .glass-thickness(rgba(255, 100, 100, 0.6));
+    border-color: rgba(255, 100, 100, 0.3);
+  }
+}
+
 // TDesign 主题定制
 :root {
   --td-brand-color: #7ea1d6;
   --td-brand-color-hover: #a5c1e7;
-  --td-bg-color-container: rgba(20, 20, 20, 0.9);
+  --td-bg-color-container: rgba(255, 255, 255, 0.9);
   --td-text-color-primary: #ffffff;
   --td-text-color-secondary: rgba(255, 255, 255, 0.7);
   --td-border-level-1-color: rgba(255, 255, 255, 0.1);

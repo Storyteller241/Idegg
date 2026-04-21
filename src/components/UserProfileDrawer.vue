@@ -202,7 +202,7 @@ const isLoading = ref(false)
 
 // 头像上传相关
 const avatarFile = ref([])
-const API_BASE_URL = 'http://101.133.231.222:3000'
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
 
 // 上传配置
 const uploadAction = computed(() => `${API_BASE_URL}/api/user/upload-avatar`)

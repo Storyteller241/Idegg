@@ -1,8 +1,7 @@
 // API 接口封装
 import { useUserStore } from '../stores/user'
 
-const API_BASE_URL = 'http://101.133.231.222:3000/api'
-// const API_BASE_URL = 'http://localhost:3000/api'
+const API_BASE_URL = `${import.meta.env.VITE_API_BASE_URL}/api`
 
 // 统一请求封装
 async function request<T>(url: string, options?: RequestInit, auth: boolean = false): Promise<T> {
@@ -45,6 +44,7 @@ export interface Comment {
 export interface EggData {
   id?: number
   user_id?: number
+  pool_id?: number
   name: string
   color: string
   pos_x: number
@@ -62,6 +62,17 @@ export interface EggData {
   human_rating_count?: number
   user_has_rated?: boolean
   user_rating?: number | null
+}
+
+// 蛋池数据接口
+export interface EggPool {
+  id: number
+  name: string
+  type: 'public' | 'private'
+  owner_id: number
+  owner_name?: string
+  created_at: string
+  is_owner?: boolean
 }
 
 // API 方法
@@ -112,9 +123,9 @@ export const eggApi = {
   },
 
   // 对蛋进行评分（需要认证）
-  rateEgg(eggId: number, score: number): Promise<{ 
-    status: string; 
-    message: string; 
+  rateEgg(eggId: number, score: number): Promise<{
+    status: string;
+    message: string;
     data: {
       ratingId: number
       score: number
@@ -126,5 +137,71 @@ export const eggApi = {
       method: 'POST',
       body: JSON.stringify({ score }),
     }, true)
+  },
+
+  // ========== 蛋池 (Pool) 相关接口 ==========
+
+  // 获取蛋池列表
+  getPools(): Promise<{ status: string; data: EggPool[] }> {
+    return request<{ status: string; data: EggPool[] }>('/pools', {}, true)
+  },
+
+  // 创建蛋池
+  createPool(name: string, type: 'public' | 'private'): Promise<{
+    status: string;
+    message: string;
+    data: {
+      id: number
+      name: string
+      type: string
+      owner_id: number
+    }
+  }> {
+    return request('/pools', {
+      method: 'POST',
+      body: JSON.stringify({ name, type }),
+    }, true)
+  },
+
+  // 邀请用户加入蛋池
+  inviteToPool(poolId: number, username: string): Promise<{
+    status: string;
+    message: string;
+    data: {
+      pool_id: number
+      user_id: number
+      username: string
+    }
+  }> {
+    return request(`/pools/${poolId}/invite`, {
+      method: 'POST',
+      body: JSON.stringify({ username }),
+    }, true)
+  },
+
+  // 获取蛋池成员列表
+  getPoolMembers(poolId: number): Promise<{
+    status: string;
+    data: Array<{
+      id: number
+      username: string
+      avatar: string | null
+      joined_at: string
+      is_owner: boolean
+    }>
+  }> {
+    return request(`/pools/${poolId}/members`, {}, true)
+  },
+
+  // 离开蛋池
+  leavePool(poolId: number): Promise<{ status: string; message: string }> {
+    return request(`/pools/${poolId}/members`, {
+      method: 'DELETE',
+    }, true)
+  },
+
+  // 获取指定蛋池的蛋列表
+  getEggsByPool(poolId: number): Promise<EggData[]> {
+    return request<EggData[]>(`/get-eggs?pool_id=${poolId}`, {}, true)
   },
 }

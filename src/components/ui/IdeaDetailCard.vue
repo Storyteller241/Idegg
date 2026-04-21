@@ -299,7 +299,7 @@ const formatTime = (timestamp: number | undefined): string => {
 }
 
 // API 基础 URL
-const API_BASE_URL = 'http://101.133.231.222:3000'
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
 
 // 获取完整头像 URL
 const getAvatarUrl = (avatar: string | null): string => {
@@ -509,15 +509,16 @@ watch(() => props.visible, (newVal) => {
   padding: 20px;
 }
 
-// 弹窗容器
+// 弹窗容器 - 白色磨砂基调
 .modal-container {
   width: 100%;
   max-width: 520px;
   max-height: 85vh;
-  background: rgba(255, 255, 255, 0.4);
-  backdrop-filter: blur(25px);
-  -webkit-backdrop-filter: blur(25px);
-  border-radius: 32px;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
   display: flex;
   flex-direction: column;
