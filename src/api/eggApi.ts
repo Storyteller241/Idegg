@@ -200,8 +200,8 @@ export const eggApi = {
     }, true)
   },
 
-  // 获取指定蛋池的蛋列表
+  // 获取指定蛋池的蛋列表（带时间戳防止缓存）
   getEggsByPool(poolId: number): Promise<EggData[]> {
-    return request<EggData[]>(`/get-eggs?pool_id=${poolId}`, {}, true)
+    return request<EggData[]>(`/get-eggs?pool_id=${poolId}&t=${Date.now()}`, {}, true)
   },
 }

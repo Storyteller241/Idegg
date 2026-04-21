@@ -83,6 +83,19 @@
           :max-polar-angle="Math.PI / 2 - 0.1"
         />
       </TresCanvas>
+      
+      <!-- 加载中提示 -->
+      <div v-if="poolLoading" class="scene-loading-overlay">
+        <div class="loading-spinner"></div>
+        <span class="loading-text">加载中...</span>
+      </div>
+      
+      <!-- 空状态提示 -->
+      <div v-else-if="currentPool && ideas.length === 0 && !isSwitchingPool" class="scene-empty-overlay">
+        <div class="empty-icon">🥚</div>
+        <span class="empty-text">空空如也</span>
+        <span class="empty-hint">这个蛋池还没有 Idea</span>
+      </div>
     </div>
 
     <!-- UI 覆盖层 -->
@@ -448,18 +461,23 @@ const handlePoolChange = async (poolId: number | null) => {
 
 // 丝滑切换到指定蛋池
 const isSwitchingPool = ref(false)
+const poolLoading = ref(false)
+
 const switchToPool = async (poolId: number | null) => {
   if (isSwitchingPool.value) return
   if (poolId === currentPoolId.value && ideas.value.length > 0) return
   
   isSwitchingPool.value = true
+  poolLoading.value = true
   
   try {
-    // 1. 先清空当前场景（给 Vue 一个 tick 时间来清理 DOM）
+    // 1. 清理物理世界和场景
+    destroyPhysics()
     ideas.value = []
+    await new Promise(resolve => setTimeout(resolve, 50))
     
-    // 2. 等待一小段时间让 3D 场景清理完成
-    await new Promise(resolve => setTimeout(resolve, 100))
+    // 2. 重新初始化物理世界
+    initPhysics()
     
     // 3. 更新当前蛋池ID
     currentPoolId.value = poolId
@@ -470,17 +488,34 @@ const switchToPool = async (poolId: number | null) => {
     } else {
       await loadEggs()
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('切换蛋池失败:', error)
+    // 403 错误自动跳回公共蛋池
+    if (error.message?.includes('403') || error.message?.includes('无权访问')) {
+      MessagePlugin.error('无权访问该蛋池，自动跳回公共蛋池')
+      const publicPool = pools.value.find(p => p.type === 'public')
+      if (publicPool && publicPool.id !== poolId) {
+        await switchToPool(publicPool.id)
+      }
+    }
   } finally {
     isSwitchingPool.value = false
+    poolLoading.value = false
   }
 }
 
 // 加载指定蛋池的蛋
 const loadEggsByPool = async (poolId: number) => {
   try {
+    poolLoading.value = true
     const eggs = await eggApi.getEggsByPool(poolId)
+    
+    // 空数据处理 - 显示"空空如也"
+    if (!eggs || eggs.length === 0) {
+      ideas.value = []
+      return
+    }
+    
     // 转换数据库格式为前端格式
     ideas.value = eggs.map(egg => ({
       id: `egg-${egg.id}`,
@@ -493,8 +528,12 @@ const loadEggsByPool = async (poolId: number) => {
       displayColor: egg.displayColor,
       eggStatus: egg.status
     }))
-  } catch (error) {
+  } catch (error: any) {
     console.error('加载蛋池蛋数据失败:', error)
+    ideas.value = []
+    throw error
+  } finally {
+    poolLoading.value = false
   }
 }
 
@@ -717,6 +756,81 @@ const handleLogout = () => {
   width: 100%;
   height: 100%;
   z-index: 1;
+}
+
+// 场景加载中覆盖层
+.scene-loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(4px);
+  z-index: 5;
+  pointer-events: none;
+  
+  .loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(255, 255, 255, 0.2);
+    border-top-color: #00c8ff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  
+  .loading-text {
+    margin-top: 12px;
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.8);
+  }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+// 场景空状态覆盖层
+.scene-empty-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+  pointer-events: none;
+  
+  .empty-icon {
+    font-size: 64px;
+    opacity: 0.5;
+    animation: float 3s ease-in-out infinite;
+  }
+  
+  .empty-text {
+    margin-top: 16px;
+    font-size: 18px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.6);
+  }
+  
+  .empty-hint {
+    margin-top: 8px;
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.4);
+  }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
 }
 
 .ui-overlay {
