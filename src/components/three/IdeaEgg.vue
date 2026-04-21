@@ -2,12 +2,14 @@
   <!-- 完整的蛋 -->
   <TresGroup v-if="!isBroken" :position="position">
     <TresMesh
+      ref="eggMeshRef"
       :scale="[1, 1.25, 1]"
       cast-shadow
       receive-shadow
+      :user-data="eggUserData"
       @click="emit('click', ideaData)"
-      @pointer-over="isHovered = true"
-      @pointer-leave="isHovered = false"
+      @pointer-over="handlePointerOver"
+      @pointer-leave="handlePointerLeave"
     >
       <TresSphereGeometry :args="[1, 32, 32]" />
       <TresMeshStandardMaterial
@@ -50,6 +52,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch, onUnmounted } from 'vue'
+import * as THREE from 'three'
 import type { Idea } from '@/types'
 import { usePhysicsEgg } from '@/composables/usePhysicsEgg'
 
@@ -66,6 +69,37 @@ const emit = defineEmits<{
 
 const isHovered = ref(false)
 const isBroken = ref(false)
+const eggMeshRef = ref<THREE.Mesh | null>(null)
+
+// 设置 userData 供 Raycaster 识别
+const eggUserData = computed(() => ({
+  isEgg: true,
+  eggData: {
+    id: props.ideaData.id,
+    title: props.ideaData.title,
+    creator: (props.ideaData as any).creator_name || '未知',
+    eggStatus: props.ideaData.eggStatus,
+    displayColor: props.ideaData.displayColor || eggColor.value
+  }
+}))
+
+// 监听 mesh 创建，设置 userData
+watch(eggMeshRef, (mesh) => {
+  if (mesh) {
+    mesh.userData = eggUserData.value
+  }
+}, { immediate: true })
+
+// 指针进入处理
+const handlePointerOver = () => {
+  isHovered.value = true
+}
+
+// 指针离开处理
+const handlePointerLeave = () => {
+  isHovered.value = false
+}
+
 const { position, pausePhysics, resumePhysics, setSensor, setPosition, destroy } = usePhysicsEgg(props.ideaData)
 
 // 悬浮动画

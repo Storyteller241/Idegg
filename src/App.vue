@@ -68,6 +68,7 @@
         <IdeaEgg
           v-for="idea in renderIdeas"
           :key="`${currentPoolId}-${idea.id}`"
+          ref="eggRefs"
           :idea-data="idea"
           :search-keyword="searchKeyword"
           @click="handleEggClick(idea)"
@@ -128,9 +129,19 @@
             </div>
           </transition>
         </div>
+            <!-- 切换蛋池按钮 - 仅当有多个蛋池时显示 -->
+    <div
+      v-if="isLoggedIn && pools.length > 1"
+      class="pool-switch-btn"
+      @click="showPoolSwitchDrawer = true"
+      title="切换蛋池"
+    >
+      <span class="pool-icon">{{ currentPool?.type === 'public' ? '🌐' : '🔒' }}</span>
+      <span class="pool-name-short">{{ currentPool?.name?.slice(0, 2) || '蛋池' }}</span>
+    </div>
         
         <!-- 当前蛋池名称 / 切换中状态 -->
-        <div v-if="isSwitchingPool" class="pool-status-text switching">
+        <!-- <div v-if="isSwitchingPool" class="pool-status-text switching">
           <span class="loading-dot"></span>
           切换中...
         </div>
@@ -140,7 +151,7 @@
         </div>
         <div v-else class="pool-status-text">
           未选择蛋池
-        </div>
+        </div> -->
       </div>
 
       <!-- 右上角提示 -->
@@ -305,16 +316,6 @@
       @click="showProfileDrawer = true"
     />
 
-    <!-- 切换蛋池按钮 - 仅当有多个蛋池时显示 -->
-    <div
-      v-if="isLoggedIn && pools.length > 1"
-      class="pool-switch-btn"
-      @click="showPoolSwitchDrawer = true"
-      title="切换蛋池"
-    >
-      <span class="pool-icon">{{ currentPool?.type === 'public' ? '🌐' : '🔒' }}</span>
-      <span class="pool-name-short">{{ currentPool?.name?.slice(0, 2) || '蛋池' }}</span>
-    </div>
 
     <!-- 个人中心抽屉 -->
     <UserProfileDrawer
@@ -355,14 +356,40 @@
 
     </div>
   </div>
+  
+  <!-- 全局 iOS 风格 Tooltip -->
+  <Teleport to="body">
+    <Transition name="tooltip-fade">
+      <div 
+        v-if="tooltip.visible" 
+        class="ios-tooltip-wrapper"
+        :style="tooltipPosition"
+      >
+        <div class="ios-tooltip">
+          <div class="ios-tooltip-content">
+            <div class="ios-tooltip-title">{{ tooltip.data?.title || '未命名' }}</div>
+            <div class="ios-tooltip-meta">创建者: {{ tooltip.data?.creator || '未知' }}</div>
+            <div 
+              class="ios-tooltip-status" 
+              :style="{ color: tooltip.data?.color || '#999' }"
+            >
+              {{ tooltip.data?.statusText || '未知状态' }}
+            </div>
+          </div>
+          <div class="ios-tooltip-arrow"></div>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue'
-import { TresCanvas } from '@tresjs/core'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
+import { TresCanvas, useTresContext } from '@tresjs/core'
 import { OrbitControls } from '@tresjs/cientos'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useUserStore } from './stores/user'
+import * as THREE from 'three'
 import Login from './components/Login.vue'
 import UserAvatar from './components/UserAvatar.vue'
 import UserProfileDrawer from './components/UserProfileDrawer.vue'
@@ -371,6 +398,148 @@ import IdeaDetailCard from './components/ui/IdeaDetailCard.vue'
 import { initPhysics, destroyPhysics } from './composables/usePhysics'
 import { eggApi, type EggPool } from './api/eggApi'
 import type { Idea } from './types'
+
+// Tooltip 数据接口
+interface TooltipData {
+  title: string
+  creator: string
+  statusText: string
+  color: string
+  screenX: number
+  screenY: number
+}
+
+// 全局 Tooltip 状态
+const tooltip = ref<{
+  visible: boolean
+  data: TooltipData | null
+}>({
+  visible: false,
+  data: null
+})
+
+// 计算 tooltip 位置
+const tooltipPosition = computed(() => {
+  if (!tooltip.value.data) return {}
+  const { screenX, screenY } = tooltip.value.data
+  // 在蛋的上方显示，偏移 20px
+  return {
+    left: `${screenX}px`,
+    top: `${screenY - 20}px`,
+    transform: 'translate(-50%, -100%)'
+  }
+})
+
+// 显示 tooltip 的方法
+const showTooltip = (data: TooltipData) => {
+  tooltip.value.data = data
+  tooltip.value.visible = true
+}
+
+// 隐藏 tooltip 的方法
+const hideTooltip = () => {
+  tooltip.value.visible = false
+}
+
+// Raycaster 用于检测鼠标悬停
+const raycaster = new THREE.Raycaster()
+const mouse = new THREE.Vector2()
+let cameraRef: THREE.Camera | null = null
+let sceneRef: THREE.Scene | null = null
+
+// 获取 TresJS 上下文
+const { camera, scene } = useTresContext ? useTresContext() : { camera: ref(null), scene: ref(null) }
+
+// 监听鼠标移动，检测 hover
+const handleMouseMove = (event: MouseEvent) => {
+  if (!cameraRef || !sceneRef || !isLoggedIn.value) return
+  
+  // 计算鼠标在归一化设备坐标中的位置
+  const rect = (event.target as HTMLElement).getBoundingClientRect()
+  mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
+  mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+  
+  // 更新 raycaster
+  raycaster.setFromCamera(mouse, cameraRef)
+  
+  // 获取所有蛋的 Mesh（需要遍历场景找到所有蛋）
+  const eggMeshes: THREE.Object3D[] = []
+  sceneRef.traverse((child) => {
+    // 蛋的 Mesh 有特定的 userData 标识
+    if (child.userData?.isEgg) {
+      eggMeshes.push(child)
+    }
+  })
+  
+  // 检测相交
+  const intersects = raycaster.intersectObjects(eggMeshes, false)
+  
+  if (intersects.length > 0) {
+    const hitObject = intersects[0].object
+    const eggData = hitObject.userData?.eggData
+    
+    if (eggData) {
+      // 计算屏幕坐标
+      const vector = new THREE.Vector3()
+      hitObject.getWorldPosition(vector)
+      vector.y += 1.5 // 蛋上方
+      
+      vector.project(cameraRef)
+      
+      const screenX = (vector.x * 0.5 + 0.5) * rect.width + rect.left
+      const screenY = (-(vector.y * 0.5) + 0.5) * rect.height + rect.top
+      
+      // 显示 tooltip
+      showTooltip({
+        title: eggData.title,
+        creator: eggData.creator || '未知',
+        statusText: getStatusText(eggData.eggStatus),
+        color: eggData.displayColor || '#FFFFFF',
+        screenX,
+        screenY
+      })
+    }
+  } else {
+    hideTooltip()
+  }
+}
+
+// 获取状态文本
+const getStatusText = (status?: string) => {
+  switch (status) {
+    case 'fresh': return '状态: 新鲜'
+    case 'aging': return '状态:  aging'
+    case 'spoiled': return '状态: 变质'
+    case 'incubated': return '状态: 孵化中'
+    default: return '状态: 未知'
+  }
+}
+
+// 监听 camera 和 scene 变化
+watch(camera, (newCamera) => {
+  if (newCamera) cameraRef = newCamera
+}, { immediate: true })
+
+watch(scene, (newScene) => {
+  if (newScene) {
+    sceneRef = newScene
+    // 添加鼠标移动监听
+    setTimeout(() => {
+      const canvas = document.querySelector('.scene-layer canvas') as HTMLCanvasElement | null
+      if (canvas) {
+        canvas.addEventListener('mousemove', handleMouseMove as EventListener)
+      }
+    }, 100)
+  }
+}, { immediate: true })
+
+// 清理事件监听
+onUnmounted(() => {
+  const canvas = document.querySelector('.scene-layer canvas') as HTMLCanvasElement | null
+  if (canvas) {
+    canvas.removeEventListener('mousemove', handleMouseMove as EventListener)
+  }
+})
 
 const userStore = useUserStore()
 
@@ -1040,27 +1209,27 @@ const handleLogout = () => {
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
   transition: all 0.3s ease;
   position: relative;
   
   svg {
     width: 20px;
     height: 20px;
-    color: rgba(255, 255, 255, 0.9);
+    color: rgba(0, 0, 0, 0.6);
   }
   
   &:hover {
-    background: rgba(255, 255, 255, 0.25);
-    box-shadow: 0 6px 30px rgba(0, 0, 0, 0.2);
+    background: rgba(255, 255, 255, 1);
+    box-shadow: 0 6px 30px rgba(0, 0, 0, 0.4);
   }
 }
 
@@ -1424,8 +1593,8 @@ const handleLogout = () => {
 // 切换蛋池按钮（固定在头像下方）
 .pool-switch-btn {
   position: fixed;
-  right: 40px;
-  top: calc(50% + 50px);
+  left: 24px;
+  top: 100px;
   transform: translateY(-50%);
   width: 48px;
   height: 48px;
@@ -1451,7 +1620,7 @@ const handleLogout = () => {
   
   .pool-name-short {
     font-size: 10px;
-    color: rgba(255, 255, 255, 0.8);
+    color: rgba(41, 49, 63, 0.8);
     margin-top: 2px;
     max-width: 36px;
     overflow: hidden;
@@ -1569,4 +1738,82 @@ const handleLogout = () => {
   font-size: 14px;
   color: #fff;
 }
+
+// ========== iOS 风格 Tooltip 样式 ==========
+.ios-tooltip-wrapper {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+}
+
+.ios-tooltip {
+  position: relative;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 12px;
+  padding: 12px 16px;
+  box-shadow: 
+    0 4px 20px rgba(0, 0, 0, 0.3),
+    0 0 0 0.5px rgba(255, 255, 255, 0.1) inset;
+  min-width: 140px;
+  max-width: 200px;
+}
+
+.ios-tooltip-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ios-tooltip-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  line-height: 1.3;
+}
+
+.ios-tooltip-meta {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1.3;
+}
+
+.ios-tooltip-status {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.3;
+  margin-top: 2px;
+}
+
+.ios-tooltip-arrow {
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 6px solid rgba(0, 0, 0, 0.8);
+}
+
+// Tooltip 动画
+.tooltip-fade-enter-active,
+.tooltip-fade-leave-active {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tooltip-fade-enter-from,
+.tooltip-fade-leave-to {
+  opacity: 0;
+  transform: translate(-50%, -90%) scale(0.95);
+}
+
+.tooltip-fade-enter-to,
+.tooltip-fade-leave-from {
+  opacity: 1;
+  transform: translate(-50%, -100%) scale(1);
+}
+
 </style>
