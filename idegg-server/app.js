@@ -1,3 +1,5 @@
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+
 const express = require('express');
 const mysql = require('mysql2');
 const cors = require('cors');
@@ -7,6 +9,10 @@ const multer = require('multer');
 const sharp = require('sharp');
 const path = require('path');
 const fs = require('fs');
+const axios = require('axios');
+
+// 加载环境变量（必须在最顶部）
+require('dotenv').config();
 
 const app = express();
 app.use(cors()); // 允许 Vue 前端跨域访问
@@ -236,12 +242,12 @@ db.connect(err => {
     else console.log('✅ pool_members 表已就绪');
   });
 
-  // 创建 friendships 表（好友表）
+  // 创建 friendships 表（好友表）- 使用数字状态 0=申请中, 1=已接受, 2=已拒绝
   const createFriendshipsTable = `
     CREATE TABLE IF NOT EXISTS friendships (
       user_id1 INT NOT NULL,
       user_id2 INT NOT NULL,
-      status ENUM('pending', 'accepted', 'blocked') DEFAULT 'pending',
+      status TINYINT DEFAULT 0 COMMENT '0=申请中, 1=已接受, 2=已拒绝',
       action_user_id INT NOT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -255,6 +261,41 @@ db.connect(err => {
   db.query(createFriendshipsTable, (err) => {
     if (err) console.error('创建 friendships 表失败:', err);
     else console.log('✅ friendships 表已就绪');
+  });
+
+  // 检查并修改 friendships 表的 status 字段类型（兼容旧表）
+  const checkFriendshipsColumnSql = `SELECT DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'friendships' AND COLUMN_NAME = 'status' AND TABLE_SCHEMA = DATABASE()`;
+  db.query(checkFriendshipsColumnSql, (err, results) => {
+    if (err) {
+      console.error('检查 friendships 表结构失败:', err);
+      return;
+    }
+
+    if (results.length > 0 && results[0].DATA_TYPE === 'enum') {
+      // 需要将 ENUM 改为 TINYINT
+      console.log('💡 检测到 friendships.status 是 ENUM 类型，正在迁移为 TINYINT...');
+
+      // 先删除外键约束（如果有）
+      const dropFkSql = `ALTER TABLE friendships DROP FOREIGN KEY IF EXISTS fk_friendships_action_user`;
+      db.query(dropFkSql, () => {
+        // 修改字段类型
+        const alterSql = `ALTER TABLE friendships MODIFY COLUMN status TINYINT DEFAULT 0 COMMENT '0=申请中, 1=已接受, 2=已拒绝'`;
+        db.query(alterSql, (err) => {
+          if (err) {
+            console.error('修改 friendships.status 字段失败:', err);
+            return;
+          }
+          console.log('✅ friendships.status 字段已迁移为 TINYINT');
+
+          // 迁移数据: 'pending' -> 0, 'accepted' -> 1, 'blocked' -> 2
+          const updateSql = `UPDATE friendships SET status = CASE status WHEN 'pending' THEN 0 WHEN 'accepted' THEN 1 WHEN 'blocked' THEN 2 ELSE 0 END`;
+          db.query(updateSql, (err) => {
+            if (err) console.error('迁移 friendships 数据失败:', err);
+            else console.log('✅ friendships 数据迁移完成');
+          });
+        });
+      });
+    }
   });
 
   // 创建 messages 表（私信表）
@@ -273,6 +314,24 @@ db.connect(err => {
   db.query(createMessagesTable, (err) => {
     if (err) console.error('创建 messages 表失败:', err);
     else console.log('✅ messages 表已就绪');
+  });
+
+  // AI 分析结果缓存表
+  const createEggAnalysisTable = `
+    CREATE TABLE IF NOT EXISTS egg_analysis (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      egg_id INT NOT NULL,
+      content TEXT NOT NULL COMMENT 'AI 分析结果全文',
+      creator_skills TEXT DEFAULT NULL COMMENT '分析时创建者的 skills 快照',
+      creator_bio TEXT DEFAULT NULL COMMENT '分析时创建者的 bio 快照',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uk_egg_id (egg_id),
+      FOREIGN KEY (egg_id) REFERENCES eggs(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `;
+  db.query(createEggAnalysisTable, (err) => {
+    if (err) console.error('创建 egg_analysis 表失败:', err);
+    else console.log('✅ egg_analysis 表已就绪');
   });
 
   // 为 eggs 表添加 pool_id 字段（如果还不存在）
@@ -434,21 +493,13 @@ app.get('/api/user/profile', authMiddleware, (req, res) => {
 
     const user = results[0];
 
-    // 解析 skills JSON
-    let skills = [];
-    try {
-      skills = user.skills ? JSON.parse(user.skills) : [];
-    } catch (e) {
-      skills = [];
-    }
-
     res.json({
       status: 'success',
       data: {
         id: user.id,
         username: user.username,
         avatar: user.avatar,
-        skills: skills,
+        skills: user.skills || '',
         bio: user.bio,
         created_at: user.created_at,
         updated_at: user.updated_at
@@ -482,10 +533,10 @@ app.put('/api/user/profile', authMiddleware, async (req, res) => {
       values.push(avatar);
     }
 
-    // 更新技能（数组转JSON存储）
+    // 更新技能
     if (skills !== undefined) {
       updates.push('skills = ?');
-      values.push(JSON.stringify(skills));
+      values.push(skills);
     }
 
     // 更新简介
@@ -609,6 +660,7 @@ app.get('/api/pools', authMiddleware, (req, res) => {
   const userId = req.user.userId;
 
   // 查询公共池子 + 用户是成员的私有池子
+  // 添加 membership_type 字段区分：'owner'(我创建的), 'member'(我加入的), 'public'(公共)
   const sql = `
     SELECT DISTINCT
       ep.id,
@@ -617,30 +669,46 @@ app.get('/api/pools', authMiddleware, (req, res) => {
       ep.owner_id,
       ep.created_at,
       u.username as owner_name,
-      (ep.owner_id = ?) as is_owner
+      CASE
+        WHEN ep.owner_id = ? THEN 'owner'
+        WHEN ep.type = 'public' THEN 'public'
+        ELSE 'member'
+      END as membership_type
     FROM egg_pools ep
     LEFT JOIN users u ON ep.owner_id = u.id
     WHERE ep.type = 'public'
     OR ep.id IN (
       SELECT pool_id FROM pool_members WHERE user_id = ?
     )
-    ORDER BY ep.created_at DESC
+    ORDER BY
+      FIELD(CASE WHEN ep.owner_id = ? THEN 'owner' WHEN ep.type = 'public' THEN 'public' ELSE 'member' END, 'owner', 'member', 'public'),
+      ep.created_at DESC
   `;
 
-  db.query(sql, [userId, userId], (err, results) => {
+  db.query(sql, [userId, userId, userId], (err, results) => {
     if (err) {
       console.error('获取蛋池列表失败:', err);
       return res.status(500).json({ status: 'error', message: '获取蛋池列表失败' });
     }
 
+    // 分类整理
+    const myCreated = results.filter(p => p.membership_type === 'owner');
+    const myJoined = results.filter(p => p.membership_type === 'member');
+    const publicPools = results.filter(p => p.membership_type === 'public');
+
     res.json({
       status: 'success',
-      data: results
+      data: results,
+      categorized: {
+        my_created: myCreated,
+        my_joined: myJoined,
+        public: publicPools
+      }
     });
   });
 });
 
-// 3. 邀请用户加入蛋池（通过 username）
+// 3. 邀请用户加入蛋池（通过 username）- 只有 owner 才能邀请
 app.post('/api/pools/:id/invite', authMiddleware, (req, res) => {
   const poolId = parseInt(req.params.id);
   const { username } = req.body;
@@ -650,16 +718,23 @@ app.post('/api/pools/:id/invite', authMiddleware, (req, res) => {
     return res.status(400).json({ status: 'error', message: '用户名不能为空' });
   }
 
-  // 检查当前用户是否是蛋池成员（只有成员才能邀请）
-  const checkMembershipSql = 'SELECT * FROM pool_members WHERE pool_id = ? AND user_id = ?';
-  db.query(checkMembershipSql, [poolId, currentUserId], (err, memberResults) => {
+  // 检查当前用户是否是蛋池 owner（只有 owner 才能邀请）
+  const checkOwnerSql = 'SELECT owner_id, type FROM egg_pools WHERE id = ?';
+  db.query(checkOwnerSql, [poolId], (err, poolResults) => {
     if (err) {
-      console.error('检查成员身份失败:', err);
+      console.error('检查蛋池所有者失败:', err);
       return res.status(500).json({ status: 'error', message: '服务器错误' });
     }
 
-    if (memberResults.length === 0) {
-      return res.status(403).json({ status: 'error', message: '您不是该蛋池的成员，无法邀请他人' });
+    if (poolResults.length === 0) {
+      return res.status(404).json({ status: 'error', message: '蛋池不存在' });
+    }
+
+    const pool = poolResults[0];
+
+    // 只有 owner 可以邀请（公共池子也要求 owner 邀请）
+    if (pool.owner_id !== currentUserId) {
+      return res.status(403).json({ status: 'error', message: '只有蛋池创建者才能邀请成员' });
     }
 
     // 根据 username 查询用户
@@ -817,11 +892,14 @@ app.get('/api/get-eggs', authMiddleware, (req, res) => {
     sql = `
       SELECT 
         e.*, 
+        u.username as creator_name,
+        u.avatar as creator_avatar,
         TIMESTAMPDIFF(HOUR, e.created_at, NOW()) as hours_age,
         ep.type as pool_type,
         (ep.owner_id = ?) as is_pool_owner
       FROM eggs e
       JOIN egg_pools ep ON e.pool_id = ep.id
+      LEFT JOIN users u ON e.user_id = u.id
       LEFT JOIN pool_members pm ON ep.id = pm.pool_id AND pm.user_id = ?
       WHERE e.pool_id = ? AND (ep.type = 'public' OR pm.user_id IS NOT NULL)
     `;
@@ -831,11 +909,14 @@ app.get('/api/get-eggs', authMiddleware, (req, res) => {
     sql = `
       SELECT 
         e.*, 
+        u.username as creator_name,
+        u.avatar as creator_avatar,
         TIMESTAMPDIFF(HOUR, e.created_at, NOW()) as hours_age,
         ep.name as pool_name,
         ep.type as pool_type
       FROM eggs e
       JOIN egg_pools ep ON e.pool_id = ep.id
+      LEFT JOIN users u ON e.user_id = u.id
       WHERE ep.type = 'public'
       OR ep.id IN (SELECT pool_id FROM pool_members WHERE user_id = ?)
     `;
@@ -1389,6 +1470,729 @@ app.get('/uploads/avatars/default.png', (req, res) => {
   `;
   res.setHeader('Content-Type', 'image/svg+xml');
   res.send(defaultAvatarSvg);
+});
+
+// ========== 好友系统接口 ==========
+
+// 1. 搜索用户（根据用户名模糊查询，排除当前用户）
+app.get('/api/users/search', authMiddleware, (req, res) => {
+  const { q } = req.query;
+  const currentUserId = req.user.userId;
+
+  if (!q || q.trim().length === 0) {
+    return res.status(400).json({ status: 'error', message: '搜索关键词不能为空' });
+  }
+
+  // 模糊查询，排除当前用户
+  const sql = `
+    SELECT id, username, avatar, created_at
+    FROM users
+    WHERE username LIKE ? AND id != ?
+    ORDER BY username ASC
+    LIMIT 20
+  `;
+
+  const searchPattern = `%${q.trim()}%`;
+
+  db.query(sql, [searchPattern, currentUserId], (err, results) => {
+    if (err) {
+      console.error('搜索用户失败:', err);
+      return res.status(500).json({ status: 'error', message: '搜索用户失败' });
+    }
+
+    res.json({
+      status: 'success',
+      data: results
+    });
+  });
+});
+
+// 2. 发送好友申请
+app.post('/api/friends/apply', authMiddleware, (req, res) => {
+  const { to_user_id } = req.body;
+  const fromUserId = req.user.userId;
+
+  if (!to_user_id) {
+    return res.status(400).json({ status: 'error', message: '请指定要添加的用户' });
+  }
+
+  const toUserId = parseInt(to_user_id);
+
+  if (toUserId === fromUserId) {
+    return res.status(400).json({ status: 'error', message: '不能添加自己为好友' });
+  }
+
+  // 检查目标用户是否存在
+  const checkUserSql = 'SELECT id, username FROM users WHERE id = ?';
+  db.query(checkUserSql, [toUserId], (err, userResults) => {
+    if (err) {
+      console.error('检查用户失败:', err);
+      return res.status(500).json({ status: 'error', message: '服务器错误' });
+    }
+
+    if (userResults.length === 0) {
+      return res.status(404).json({ status: 'error', message: '用户不存在' });
+    }
+
+    // 检查是否已有好友关系
+    const userId1 = Math.min(fromUserId, toUserId);
+    const userId2 = Math.max(fromUserId, toUserId);
+
+    const checkExistingSql = 'SELECT * FROM friendships WHERE user_id1 = ? AND user_id2 = ?';
+    db.query(checkExistingSql, [userId1, userId2], (err, existingResults) => {
+      if (err) {
+        console.error('检查好友关系失败:', err);
+        return res.status(500).json({ status: 'error', message: '服务器错误' });
+      }
+
+      if (existingResults.length > 0) {
+        const existing = existingResults[0];
+        if (existing.status === 1) {
+          return res.status(409).json({ status: 'error', message: '你们已经是好友了' });
+        } else if (existing.status === 0) {
+          return res.status(409).json({ status: 'error', message: '好友申请已发送，等待对方处理' });
+        }
+      }
+
+      // 插入好友申请记录 (status: 0=申请中, 1=已接受, 2=已拒绝)
+      const insertSql = `
+        INSERT INTO friendships (user_id1, user_id2, status, action_user_id)
+        VALUES (?, ?, 0, ?)
+      `;
+      db.query(insertSql, [userId1, userId2, fromUserId], (err, result) => {
+        if (err) {
+          console.error('发送好友申请失败:', err);
+          return res.status(500).json({ status: 'error', message: '发送好友申请失败' });
+        }
+
+        res.json({
+          status: 'success',
+          message: '好友申请已发送'
+        });
+      });
+    });
+  });
+});
+
+// 3. 获取好友列表（只返回已接受的好友）
+app.get('/api/friends', authMiddleware, (req, res) => {
+  const userId = req.user.userId;
+
+  const sql = `
+    SELECT
+      CASE
+        WHEN f.user_id1 = ? THEN u2.id
+        ELSE u1.id
+      END as id,
+      CASE
+        WHEN f.user_id1 = ? THEN u2.username
+        ELSE u1.username
+      END as username,
+      CASE
+        WHEN f.user_id1 = ? THEN u2.avatar
+        ELSE u1.avatar
+      END as avatar,
+      f.created_at
+    FROM friendships f
+    JOIN users u1 ON f.user_id1 = u1.id
+    JOIN users u2 ON f.user_id2 = u2.id
+    WHERE (f.user_id1 = ? OR f.user_id2 = ?) AND f.status = 1
+    ORDER BY f.updated_at DESC
+  `;
+
+  db.query(sql, [userId, userId, userId, userId, userId], (err, results) => {
+    if (err) {
+      console.error('获取好友列表失败:', err);
+      return res.status(500).json({ status: 'error', message: '获取好友列表失败' });
+    }
+
+    res.json({
+      status: 'success',
+      data: results
+    });
+  });
+});
+
+// 4. 获取待处理的好友申请（别人发给我的）
+app.get('/api/friends/pending', authMiddleware, (req, res) => {
+  const userId = req.user.userId;
+
+  const sql = `
+    SELECT
+      f.user_id1,
+      f.user_id2,
+      f.status,
+      f.action_user_id,
+      f.created_at,
+      CASE
+        WHEN f.user_id1 = ? THEN u2.id
+        ELSE u1.id
+      END as from_user_id,
+      CASE
+        WHEN f.user_id1 = ? THEN u2.username
+        ELSE u1.username
+      END as from_username,
+      CASE
+        WHEN f.user_id1 = ? THEN u2.avatar
+        ELSE u1.avatar
+      END as from_avatar
+    FROM friendships f
+    JOIN users u1 ON f.user_id1 = u1.id
+    JOIN users u2 ON f.user_id2 = u2.id
+    WHERE (f.user_id1 = ? OR f.user_id2 = ?)
+      AND f.status = 0
+      AND f.action_user_id != ?
+    ORDER BY f.created_at DESC
+  `;
+
+  db.query(sql, [userId, userId, userId, userId, userId, userId], (err, results) => {
+    if (err) {
+      console.error('获取好友申请失败:', err);
+      return res.status(500).json({ status: 'error', message: '获取好友申请失败' });
+    }
+
+    // 构造申请记录列表
+    // id 使用 from_user_id，方便前端直接传递用于处理申请
+    const requests = results.map((row) => ({
+      id: row.from_user_id, // 使用对方用户ID作为申请ID
+      from_user_id: row.from_user_id,
+      from_username: row.from_username,
+      from_avatar: row.from_avatar,
+      to_user_id: userId,
+      status: 0,
+      created_at: row.created_at
+    }));
+
+    res.json({
+      status: 'success',
+      data: requests
+    });
+  });
+});
+
+// 5. 处理好友申请（接受/拒绝）
+app.post('/api/friends/handle', authMiddleware, (req, res) => {
+  const { request_id, action } = req.body;
+  const userId = req.user.userId;
+
+  if (!request_id || !action) {
+    return res.status(400).json({ status: 'error', message: '参数不完整' });
+  }
+
+  if (!['accept', 'reject'].includes(action)) {
+    return res.status(400).json({ status: 'error', message: '无效的操作' });
+  }
+
+  // request_id 是从前端传来的对方用户ID
+  const fromUserId = parseInt(request_id);
+  const userId1 = Math.min(userId, fromUserId);
+  const userId2 = Math.max(userId, fromUserId);
+
+  // 查找待处理的申请
+  const checkSql = 'SELECT * FROM friendships WHERE user_id1 = ? AND user_id2 = ? AND status = 0';
+  db.query(checkSql, [userId1, userId2], (err, results) => {
+    if (err) {
+      console.error('检查好友申请失败:', err);
+      return res.status(500).json({ status: 'error', message: '服务器错误' });
+    }
+
+    if (results.length === 0) {
+      return res.status(404).json({ status: 'error', message: '好友申请不存在或已处理' });
+    }
+
+    const friendship = results[0];
+
+    // 验证当前用户是接收方
+    if (friendship.action_user_id === userId) {
+      return res.status(403).json({ status: 'error', message: '不能处理自己发出的申请' });
+    }
+
+    if (action === 'accept') {
+      // 接受申请，status 改为 1
+      const updateSql = 'UPDATE friendships SET status = 1, action_user_id = ? WHERE user_id1 = ? AND user_id2 = ?';
+      db.query(updateSql, [userId, userId1, userId2], (err, result) => {
+        if (err) {
+          console.error('接受好友申请失败:', err);
+          return res.status(500).json({ status: 'error', message: '接受好友申请失败' });
+        }
+
+        res.json({
+          status: 'success',
+          message: '已接受好友申请'
+        });
+      });
+    } else {
+      // 拒绝申请，删除记录或改为 2
+      const deleteSql = 'DELETE FROM friendships WHERE user_id1 = ? AND user_id2 = ?';
+      db.query(deleteSql, [userId1, userId2], (err, result) => {
+        if (err) {
+          console.error('拒绝好友申请失败:', err);
+          return res.status(500).json({ status: 'error', message: '拒绝好友申请失败' });
+        }
+
+        res.json({
+          status: 'success',
+          message: '已拒绝好友申请'
+        });
+      });
+    }
+  });
+});
+
+// 6. 删除好友
+app.delete('/api/friends/:friend_id', authMiddleware, (req, res) => {
+  const friendId = parseInt(req.params.friend_id);
+  const userId = req.user.userId;
+
+  const userId1 = Math.min(userId, friendId);
+  const userId2 = Math.max(userId, friendId);
+
+  const deleteSql = 'DELETE FROM friendships WHERE user_id1 = ? AND user_id2 = ?';
+  db.query(deleteSql, [userId1, userId2], (err, result) => {
+    if (err) {
+      console.error('删除好友失败:', err);
+      return res.status(500).json({ status: 'error', message: '删除好友失败' });
+    }
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ status: 'error', message: '好友关系不存在' });
+    }
+
+    res.json({
+      status: 'success',
+      message: '已删除好友'
+    });
+  });
+});
+
+// 7. 获取完整好友列表（包括已接受的好友和待处理的申请）- 兼容旧接口
+app.get('/api/friends/list', authMiddleware, (req, res) => {
+  const userId = req.user.userId;
+
+  // 查询所有与该用户相关的好友关系
+  const sql = `
+    SELECT
+      f.user_id1,
+      f.user_id2,
+      f.status,
+      f.action_user_id,
+      f.created_at,
+      f.updated_at,
+      CASE
+        WHEN f.user_id1 = ? THEN u2.id
+        ELSE u1.id
+      END as friend_id,
+      CASE
+        WHEN f.user_id1 = ? THEN u2.username
+        ELSE u1.username
+      END as friend_username,
+      CASE
+        WHEN f.user_id1 = ? THEN u2.avatar
+        ELSE u1.avatar
+      END as friend_avatar
+    FROM friendships f
+    JOIN users u1 ON f.user_id1 = u1.id
+    JOIN users u2 ON f.user_id2 = u2.id
+    WHERE f.user_id1 = ? OR f.user_id2 = ?
+    ORDER BY f.updated_at DESC
+  `;
+
+  db.query(sql, [userId, userId, userId, userId, userId], (err, results) => {
+    if (err) {
+      console.error('获取好友列表失败:', err);
+      return res.status(500).json({ status: 'error', message: '获取好友列表失败' });
+    }
+
+    // 分类整理数据
+    const friends = [];
+    const pendingReceived = [];
+    const pendingSent = [];
+
+    results.forEach(row => {
+      const friendInfo = {
+        friend_id: row.friend_id,
+        friend_username: row.friend_username,
+        friend_avatar: row.friend_avatar,
+        status: row.status,
+        created_at: row.created_at,
+        updated_at: row.updated_at
+      };
+
+      if (row.status === 1) {
+        friends.push(friendInfo);
+      } else if (row.status === 0) {
+        if (row.action_user_id === userId) {
+          pendingSent.push(friendInfo);
+        } else {
+          pendingReceived.push(friendInfo);
+        }
+      }
+    });
+
+    res.json({
+      status: 'success',
+      data: {
+        friends,
+        pending_received: pendingReceived,
+        pending_sent: pendingSent,
+        total_friends: friends.length,
+        total_pending: pendingReceived.length + pendingSent.length
+      }
+    });
+  });
+});
+
+// 4. 接受好友申请
+app.post('/api/friends/accept', authMiddleware, (req, res) => {
+  const { request_id } = req.body;
+  const userId = req.user.userId;
+
+  if (!request_id) {
+    return res.status(400).json({ status: 'error', message: '请指定好友申请' });
+  }
+
+  // request_id 实际上是对方的用户 ID（因为 friendships 表的主键是 user_id1 + user_id2）
+  const fromUserId = parseInt(request_id);
+
+  // 检查好友关系是否存在且是当前用户收到的申请
+  const userId1 = Math.min(userId, fromUserId);
+  const userId2 = Math.max(userId, fromUserId);
+
+  const checkSql = 'SELECT * FROM friendships WHERE user_id1 = ? AND user_id2 = ?';
+  db.query(checkSql, [userId1, userId2], (err, results) => {
+    if (err) {
+      console.error('检查好友申请失败:', err);
+      return res.status(500).json({ status: 'error', message: '服务器错误' });
+    }
+
+    if (results.length === 0) {
+      return res.status(404).json({ status: 'error', message: '好友申请不存在' });
+    }
+
+    const friendship = results[0];
+
+    if (friendship.status !== 'pending') {
+      return res.status(400).json({ status: 'error', message: '该申请已处理' });
+    }
+
+    // 验证当前用户是否是接收方（即 action_user_id 不是自己）
+    if (friendship.action_user_id === userId) {
+      return res.status(403).json({ status: 'error', message: '不能接受自己发出的申请' });
+    }
+
+    // 更新状态为 accepted
+    const updateSql = `
+      UPDATE friendships
+      SET status = 'accepted', action_user_id = ?
+      WHERE user_id1 = ? AND user_id2 = ?
+    `;
+    db.query(updateSql, [userId, userId1, userId2], (err, result) => {
+      if (err) {
+        console.error('接受好友申请失败:', err);
+        return res.status(500).json({ status: 'error', message: '接受好友申请失败' });
+      }
+
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ status: 'error', message: '好友申请不存在或已处理' });
+      }
+
+      // 获取对方信息
+      const getUserSql = 'SELECT id, username, avatar FROM users WHERE id = ?';
+      db.query(getUserSql, [fromUserId], (err, userResults) => {
+        const friendInfo = userResults.length > 0 ? userResults[0] : null;
+
+        res.json({
+          status: 'success',
+          message: '已接受好友申请',
+          data: {
+            friend_id: fromUserId,
+            friend_username: friendInfo?.username,
+            friend_avatar: friendInfo?.avatar,
+            status: 'accepted'
+          }
+        });
+      });
+    });
+  });
+});
+
+// 5. 拒绝/删除好友（可选扩展）
+app.delete('/api/friends/:friend_id', authMiddleware, (req, res) => {
+  const friendId = parseInt(req.params.friend_id);
+  const userId = req.user.userId;
+
+  // 删除好友关系（无论是 pending 还是 accepted）
+  const userId1 = Math.min(userId, friendId);
+  const userId2 = Math.max(userId, friendId);
+
+  const deleteSql = 'DELETE FROM friendships WHERE user_id1 = ? AND user_id2 = ?';
+  db.query(deleteSql, [userId1, userId2], (err, result) => {
+    if (err) {
+      console.error('删除好友失败:', err);
+      return res.status(500).json({ status: 'error', message: '删除好友失败' });
+    }
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ status: 'error', message: '好友关系不存在' });
+    }
+
+    res.json({
+      status: 'success',
+      message: '已删除好友关系'
+    });
+  });
+});
+
+// ========== AI 分析接口 (SSE 流式输出) ==========
+
+// AI 配置
+const AI_CONFIG = {
+  provider: process.env.AI_PROVIDER || 'coding',
+  model: process.env.AI_MODEL || 'qwen-plus',
+  getBaseUrl() {
+    switch (this.provider) {
+      case 'coding':
+        return process.env.CODING_BASE_URL || 'https://coding.dashscope.aliyuncs.com';
+      case 'openai':
+        return process.env.OPENAI_BASE_URL || 'https://api.openai.com';
+      case 'deepseek':
+      default:
+        return process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com';
+    }
+  },
+  getApiKey() {
+    switch (this.provider) {
+      case 'coding':
+        return process.env.CODING_API_KEY;
+      case 'openai':
+        return process.env.OPENAI_API_KEY;
+      case 'deepseek':
+      default:
+        return process.env.DEEPSEEK_API_KEY;
+    }
+  }
+};
+
+// 构建分析 Prompt
+function buildAnalysisPrompt(eggName, eggContent, userSkills, userBio) {
+  const skills = Array.isArray(userSkills) ? userSkills.join('、') : (userSkills || '暂未填写');
+  const bio = userBio || '暂未填写';
+
+  return `你是一位犀利的创业导师，擅长一针见血地分析项目的可行性。请根据以下信息进行分析：
+
+【项目名称】：${eggName}
+【项目描述】：${eggContent || '暂无详细描述'}
+【创始人技能】：${skills}
+【创始人简介】：${bio}
+
+请从以下三个维度给出简短精炼的分析（每个维度2-3句话）：
+
+**可行性分析**：评估项目的市场前景和实现难度
+**技术难点**：指出可能遇到的技术挑战和解决方案
+**第一步该做什么**：给出最优先的行动建议
+
+要求：
+- 语言犀利、直接，不要客套话
+- 如果项目描述太少，基于项目名称大胆推测并指出信息不足的问题
+- 总字数控制在200字以内
+- 使用 Markdown 格式输出`;
+}
+
+// GET /api/eggs/:id/analysis - 获取缓存的 AI 分析结果
+app.get('/api/eggs/:id/analysis', authMiddleware, (req, res) => {
+  const eggId = parseInt(req.params.id);
+
+  // 查询是否有缓存，同时获取创建者当前 skills 和 bio 用于比对
+  const sql = `
+    SELECT a.content, a.creator_skills, a.creator_bio, a.created_at,
+           u.skills AS current_skills, u.bio AS current_bio
+    FROM egg_analysis a
+    LEFT JOIN eggs e ON a.egg_id = e.id
+    LEFT JOIN users u ON e.user_id = u.id
+    WHERE a.egg_id = ?
+  `;
+
+  db.query(sql, [eggId], (err, results) => {
+    if (err) {
+      console.error('查询 AI 分析缓存失败:', err);
+      return res.status(500).json({ status: 'error', message: '数据库错误' });
+    }
+
+    if (results.length === 0) {
+      // 无缓存
+      return res.json({ status: 'ok', data: null });
+    }
+
+    const row = results[0];
+
+    // 判断是否需要重新分析：对比 skills 和 bio 是否变化
+    const isStale =
+      row.creator_skills !== (row.current_skills || null) ||
+      row.creator_bio !== (row.current_bio || null);
+
+    res.json({
+      status: 'ok',
+      data: {
+        content: row.content,
+        created_at: row.created_at,
+        is_stale: isStale
+      }
+    });
+  });
+});
+
+// POST /api/eggs/:id/analyze - AI 分析蛋（SSE 流式输出）
+app.post('/api/eggs/:id/analyze', authMiddleware, async (req, res) => {
+  const eggId = parseInt(req.params.id);
+  const userId = req.user.userId;
+
+  // 1. 检查 API KEY 是否配置
+  const apiKey = AI_CONFIG.getApiKey();
+  if (!apiKey) {
+    return res.status(500).json({
+      status: 'error',
+      message: 'AI 服务未配置，请在服务器环境变量中设置 API KEY'
+    });
+  }
+
+  // 2. 查询蛋的信息
+  const eggSql = `
+    SELECT e.*, u.skills, u.bio, u.username as creator_name
+    FROM eggs e
+    LEFT JOIN users u ON e.user_id = u.id
+    WHERE e.id = ?
+  `;
+
+  db.query(eggSql, [eggId], async (err, eggResults) => {
+    if (err) {
+      console.error('查询蛋信息失败:', err);
+      return res.status(500).json({ status: 'error', message: '数据库错误' });
+    }
+
+    if (eggResults.length === 0) {
+      return res.status(404).json({ status: 'error', message: '蛋不存在' });
+    }
+
+    const egg = eggResults[0];
+    const userSkills = egg.skills || '';
+
+    // 3. 构建 Prompt
+    const prompt = buildAnalysisPrompt(egg.name, null, userSkills, egg.bio);
+
+    // 4. 设置 SSE 响应头
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no'); // 禁用 Nginx 缓冲
+
+    // 5. 调用 AI API（流式）
+    try {
+      const baseUrl = AI_CONFIG.getBaseUrl();
+      const endpoint = `${baseUrl}/v1/chat/completions`;
+
+      const aiResponse = await axios.post(endpoint, {
+        model: AI_CONFIG.model,
+        messages: [
+          { role: 'system', content: '你是一位说话难听但句句扎心的前YC合伙人。你的风格：1.开头直接否定最核心的漏洞（用"你根本没想清楚X"或"这不可能因为Y"）2.中间给一个具体数据或案例打脸（如"同类产品死过100个，因为…"）3.结尾必须给一句可执行的"要么改要么滚"建议（如"先验证A，否则别做"）4.禁止使用"挺好的""有潜力""可以考虑"这类词 5.每个回复不超过80字。' },
+          { role: 'user', content: prompt }
+        ],
+        stream: true,
+        temperature: 0.7,
+        max_tokens: 500
+      }, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        responseType: 'stream'
+      });
+
+      // 累积完整分析文本，用于完成后存库
+      let fullContent = '';
+
+      // 6. 流式转发 AI 响应给前端
+      aiResponse.data.on('data', (chunk) => {
+        const lines = chunk.toString().split('\n').filter(line => line.trim() !== '');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6).trim();
+
+            if (data === '[DONE]') {
+              res.write('data: [DONE]\n\n');
+              res.end();
+              return;
+            }
+
+            try {
+              const parsed = JSON.parse(data);
+              const content = parsed.choices?.[0]?.delta?.content;
+
+              if (content) {
+                fullContent += content;
+                // 转发给前端
+                res.write(`data: ${JSON.stringify({ content })}\n\n`);
+              }
+            } catch (e) {
+              // 解析失败，跳过
+            }
+          }
+        }
+      });
+
+      aiResponse.data.on('end', () => {
+        res.write('data: [DONE]\n\n');
+        res.end();
+
+        // 保存分析结果到数据库（UPSERT）
+        if (fullContent.trim()) {
+          const userSkills = egg.skills || ''
+
+          const saveSql = `
+            INSERT INTO egg_analysis (egg_id, content, creator_skills, creator_bio)
+            VALUES (?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+              content = VALUES(content),
+              creator_skills = VALUES(creator_skills),
+              creator_bio = VALUES(creator_bio),
+              created_at = CURRENT_TIMESTAMP
+          `;
+          db.query(saveSql, [eggId, fullContent, userSkills, egg.bio], (err) => {
+            if (err) console.error('保存 AI 分析结果失败:', err);
+          });
+        }
+      });
+
+      aiResponse.data.on('error', (error) => {
+        console.error('AI 流式响应错误:', error.message);
+        res.write(`data: ${JSON.stringify({ error: 'AI 服务响应中断' })}\n\n`);
+        res.end();
+      });
+
+      // 客户端断开连接时清理
+      req.on('close', () => {
+        aiResponse.data.destroy();
+      });
+
+    } catch (error) {
+      console.error('AI 分析失败:', error.message);
+      if (error.response) {
+        const detail = error.response.data?.toString?.() || JSON.stringify(error.response.data);
+        console.error('AI 错误详情 [HTTP ' + error.response.status + ']:', detail);
+      }
+
+      // 如果响应头已发送，通过 SSE 发送错误
+      if (res.headersSent) {
+        res.write(`data: ${JSON.stringify({ error: 'AI 服务调用失败：' + error.message })}\n\n`);
+        res.end();
+      } else {
+        res.status(500).json({
+          status: 'error',
+          message: 'AI 服务调用失败：' + error.message
+        });
+      }
+    }
+  });
 });
 
 // 错误处理中间件

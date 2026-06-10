@@ -1,7 +1,7 @@
 <template>
   <div class="app-container">
     <!-- 登录页面 -->
-    <Login v-show="!isLoggedIn" @login-success="handleLoginSuccess" />
+    <Login v-if="!isLoggedIn" @login-success="handleLoginSuccess" />
 
     <!-- 主应用 -->
     <div v-show="isLoggedIn" class="main-app">
@@ -12,9 +12,9 @@
         v-bind="canvasConfig"
         window-size
       >
-        <!-- 场景相机 -->
+        <!-- 场景相机 - 支持入场动画 -->
         <TresPerspectiveCamera
-          :position="[0, 8, 20]"
+          :position="cameraPosition"
           :look-at="[0, 0, 0]"
           :fov="45"
         />
@@ -46,21 +46,21 @@
           />
         </TresMesh>
 
-        <!-- 边界墙（防止蛋滚太远） -->
-        <TresMesh :position="[0, -1, -10]">
-          <TresBoxGeometry :args="[30, 2, 0.5]" />
+        <!-- 边界墙（防止蛋滚出圆盘范围，与物理边界同步） -->
+        <TresMesh :position="[0, -1, -23]">
+          <TresBoxGeometry :args="[46, 2, 0.5]" />
           <TresMeshBasicMaterial :color="'#0a0a0a'" transparent :opacity="0" />
         </TresMesh>
-        <TresMesh :position="[0, -1, 10]">
-          <TresBoxGeometry :args="[30, 2, 0.5]" />
+        <TresMesh :position="[0, -1, 23]">
+          <TresBoxGeometry :args="[46, 2, 0.5]" />
           <TresMeshBasicMaterial :color="'#0a0a0a'" transparent :opacity="0" />
         </TresMesh>
-        <TresMesh :position="[-10, -1, 0]">
-          <TresBoxGeometry :args="[0.5, 2, 30]" />
+        <TresMesh :position="[-23, -1, 0]">
+          <TresBoxGeometry :args="[0.5, 2, 46]" />
           <TresMeshBasicMaterial :color="'#0a0a0a'" transparent :opacity="0" />
         </TresMesh>
-        <TresMesh :position="[10, -1, 0]">
-          <TresBoxGeometry :args="[0.5, 2, 30]" />
+        <TresMesh :position="[23, -1, 0]">
+          <TresBoxGeometry :args="[0.5, 2, 46]" />
           <TresMeshBasicMaterial :color="'#0a0a0a'" transparent :opacity="0" />
         </TresMesh>
 
@@ -72,6 +72,7 @@
           :idea-data="idea"
           :search-keyword="searchKeyword"
           @click="handleEggClick(idea)"
+          @hover="handleEggHover"
           @animation-complete="handleAnimationComplete"
         />
         
@@ -170,11 +171,11 @@
           <template v-if="isFabHovered">
             <!-- 功能1：创建蛋池 - 最上方 -->
             <div 
-              key="createPool" 
-              class="fab-item" 
-              title="创建蛋池"
+              key="add" 
+              class="fab-item fab-item-primary" 
+              title="新增Idea" 
+              @click="showAddDialog"
               :style="{ transform: 'translate(-70px, -70px)' }"
-              @click="showCreatePoolDialog = true"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <circle cx="12" cy="12" r="10"/>
@@ -193,12 +194,13 @@
                 <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
               </svg>
             </div>
-            <!-- 功能3：协作（占位）- 左下 -->
-            <div 
-              key="collab" 
-              class="fab-item" 
-              title="协作"
+            <!-- 功能3：好友 - 左下 -->
+            <div
+              key="collab"
+              class="fab-item"
+              title="好友"
               :style="{ transform: 'translate(-100px, 25px)' }"
+              @click="showFriendModal = true; pendingFriendCount = 0"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
@@ -206,14 +208,16 @@
                 <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
                 <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
               </svg>
+              <!-- 好友申请提示气泡 -->
+              <span v-if="pendingFriendCount > 0" class="fab-badge">{{ pendingFriendCount }}</span>
             </div>
             <!-- 功能4：新增Idea - 最下方 -->
             <div 
-              key="add" 
-              class="fab-item fab-item-primary" 
-              title="新增Idea" 
-              @click="showAddDialog"
+              key="createPool" 
+              class="fab-item" 
+              title="创建蛋池"
               :style="{ transform: 'translate(-70px, 70px)' }"
+              @click="showCreatePoolDialog = true"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <line x1="12" y1="5" x2="12" y2="19"/>
@@ -229,6 +233,8 @@
             <line x1="12" y1="5" x2="12" y2="19"/>
             <line x1="5" y1="12" x2="19" y2="12"/>
           </svg>
+          <!-- 主按钮提示气泡 -->
+          <span v-if="pendingFriendCount > 0" class="fab-main-badge"></span>
         </div>
       </div>
     </div>
@@ -332,31 +338,93 @@
       class="pool-drawer"
     >
       <div class="pool-list">
-        <div
-          v-for="pool in pools"
-          :key="pool.id"
-          class="pool-list-item"
-          :class="{ 'pool-list-item-active': pool.id === currentPoolId }"
-          @click="switchToPool(pool.id); showPoolSwitchDrawer = false"
-        >
-          <div class="pool-item-info">
-            <span class="pool-item-icon">{{ pool.type === 'public' ? '🌐' : '🔒' }}</span>
-            <div class="pool-item-details">
-              <div class="pool-item-name">{{ pool.name }}</div>
-              <div class="pool-item-meta">
-                <span class="pool-item-type">{{ pool.type === 'public' ? '公共' : '私人' }}</span>
-                <span v-if="pool.is_owner" class="pool-item-owner">创建者</span>
+        <!-- 我创建的蛋池 -->
+        <div v-if="myCreatedPools.length > 0" class="pool-group">
+          <div class="pool-group-title">我创建的</div>
+          <div
+            v-for="pool in myCreatedPools"
+            :key="pool.id"
+            class="pool-list-item"
+            :class="{ 'pool-list-item-active': pool.id === currentPoolId }"
+            @click="switchToPool(pool.id); showPoolSwitchDrawer = false"
+          >
+            <div class="pool-item-info">
+              <span class="pool-item-icon">{{ pool.type === 'public' ? '🌐' : '🔒' }}</span>
+              <div class="pool-item-details">
+                <div class="pool-item-name">{{ pool.name }}</div>
+                <div class="pool-item-meta">
+                  <span class="pool-item-type">{{ pool.type === 'public' ? '公共' : '私人' }}</span>
+                  <span class="pool-item-owner">创建者</span>
+                </div>
               </div>
             </div>
+            <div v-if="pool.id === currentPoolId" class="pool-item-check">✓</div>
           </div>
-          <div v-if="pool.id === currentPoolId" class="pool-item-check">✓</div>
+        </div>
+
+        <!-- 我加入的蛋池 -->
+        <div v-if="myJoinedPools.length > 0" class="pool-group">
+          <div class="pool-group-title">我加入的</div>
+          <div
+            v-for="pool in myJoinedPools"
+            :key="pool.id"
+            class="pool-list-item"
+            :class="{ 'pool-list-item-active': pool.id === currentPoolId }"
+            @click="switchToPool(pool.id); showPoolSwitchDrawer = false"
+          >
+            <div class="pool-item-info">
+              <span class="pool-item-icon">🔒</span>
+              <div class="pool-item-details">
+                <div class="pool-item-name">{{ pool.name }}</div>
+                <div class="pool-item-meta">
+                  <span class="pool-item-type">私人</span>
+                  <span class="pool-item-member">成员</span>
+                </div>
+              </div>
+            </div>
+            <div v-if="pool.id === currentPoolId" class="pool-item-check">✓</div>
+          </div>
+        </div>
+
+        <!-- 公共蛋池 -->
+        <div v-if="publicPools.length > 0" class="pool-group">
+          <div class="pool-group-title">公共蛋池</div>
+          <div
+            v-for="pool in publicPools"
+            :key="pool.id"
+            class="pool-list-item"
+            :class="{ 'pool-list-item-active': pool.id === currentPoolId }"
+            @click="switchToPool(pool.id); showPoolSwitchDrawer = false"
+          >
+            <div class="pool-item-info">
+              <span class="pool-item-icon">🌐</span>
+              <div class="pool-item-details">
+                <div class="pool-item-name">{{ pool.name }}</div>
+                <div class="pool-item-meta">
+                  <span class="pool-item-type">公共</span>
+                </div>
+              </div>
+            </div>
+            <div v-if="pool.id === currentPoolId" class="pool-item-check">✓</div>
+          </div>
         </div>
       </div>
     </t-drawer>
 
+    <!-- 好友弹窗 -->
+    <FriendModal v-model:visible="showFriendModal" />
+
+    <!-- Loading 覆盖层 -->
+    <Transition name="loading-fade">
+      <EggLoading 
+        v-if="isLoading" 
+        :progress="loadingProgress"
+      />
+    </Transition>
+
     </div>
   </div>
-  
+
   <!-- 全局 iOS 风格 Tooltip -->
   <Teleport to="body">
     <Transition name="tooltip-fade">
@@ -367,13 +435,17 @@
       >
         <div class="ios-tooltip">
           <div class="ios-tooltip-content">
-            <div class="ios-tooltip-title">{{ tooltip.data?.title || '未命名' }}</div>
-            <div class="ios-tooltip-meta">创建者: {{ tooltip.data?.creator || '未知' }}</div>
-            <div 
-              class="ios-tooltip-status" 
-              :style="{ color: tooltip.data?.color || '#999' }"
-            >
-              {{ tooltip.data?.statusText || '未知状态' }}
+            <div class="ios-tooltip-header">
+              <div class="ios-tooltip-avatar">
+                <img v-if="tooltip.data?.avatar" :src="getTooltipAvatarUrl(tooltip.data.avatar)" alt="avatar" />
+                <div v-else class="ios-tooltip-avatar-placeholder">
+                  {{ tooltip.data?.creator ? tooltip.data.creator.charAt(0).toUpperCase() : 'U' }}
+                </div>
+              </div>
+              <div class="ios-tooltip-info">
+                <div class="ios-tooltip-title">{{ tooltip.data?.title || '未命名' }}</div>
+                <div class="ios-tooltip-meta">创建者: {{ tooltip.data?.creator || '未知' }}</div>
+              </div>
             </div>
           </div>
           <div class="ios-tooltip-arrow"></div>
@@ -385,16 +457,18 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
-import { TresCanvas, useTresContext } from '@tresjs/core'
+import { TresCanvas } from '@tresjs/core'
 import { OrbitControls } from '@tresjs/cientos'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useUserStore } from './stores/user'
-import * as THREE from 'three'
 import Login from './components/Login.vue'
 import UserAvatar from './components/UserAvatar.vue'
 import UserProfileDrawer from './components/UserProfileDrawer.vue'
 import IdeaEgg from './components/three/IdeaEgg.vue'
 import IdeaDetailCard from './components/ui/IdeaDetailCard.vue'
+import FriendModal from './components/FriendModal.vue'
+import EggLoading from './components/three/EggLoading.vue'
+import { friendApi } from './api/friendApi'
 import { initPhysics, destroyPhysics } from './composables/usePhysics'
 import { eggApi, type EggPool } from './api/eggApi'
 import type { Idea } from './types'
@@ -403,6 +477,7 @@ import type { Idea } from './types'
 interface TooltipData {
   title: string
   creator: string
+  avatar: string | null
   statusText: string
   color: string
   screenX: number
@@ -441,67 +516,11 @@ const hideTooltip = () => {
   tooltip.value.visible = false
 }
 
-// Raycaster 用于检测鼠标悬停
-const raycaster = new THREE.Raycaster()
-const mouse = new THREE.Vector2()
-let cameraRef: THREE.Camera | null = null
-let sceneRef: THREE.Scene | null = null
-
-// 获取 TresJS 上下文
-const { camera, scene } = useTresContext ? useTresContext() : { camera: ref(null), scene: ref(null) }
-
-// 监听鼠标移动，检测 hover
-const handleMouseMove = (event: MouseEvent) => {
-  if (!cameraRef || !sceneRef || !isLoggedIn.value) return
-  
-  // 计算鼠标在归一化设备坐标中的位置
-  const rect = (event.target as HTMLElement).getBoundingClientRect()
-  mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
-  mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
-  
-  // 更新 raycaster
-  raycaster.setFromCamera(mouse, cameraRef)
-  
-  // 获取所有蛋的 Mesh（需要遍历场景找到所有蛋）
-  const eggMeshes: THREE.Object3D[] = []
-  sceneRef.traverse((child) => {
-    // 蛋的 Mesh 有特定的 userData 标识
-    if (child.userData?.isEgg) {
-      eggMeshes.push(child)
-    }
-  })
-  
-  // 检测相交
-  const intersects = raycaster.intersectObjects(eggMeshes, false)
-  
-  if (intersects.length > 0) {
-    const hitObject = intersects[0].object
-    const eggData = hitObject.userData?.eggData
-    
-    if (eggData) {
-      // 计算屏幕坐标
-      const vector = new THREE.Vector3()
-      hitObject.getWorldPosition(vector)
-      vector.y += 1.5 // 蛋上方
-      
-      vector.project(cameraRef)
-      
-      const screenX = (vector.x * 0.5 + 0.5) * rect.width + rect.left
-      const screenY = (-(vector.y * 0.5) + 0.5) * rect.height + rect.top
-      
-      // 显示 tooltip
-      showTooltip({
-        title: eggData.title,
-        creator: eggData.creator || '未知',
-        statusText: getStatusText(eggData.eggStatus),
-        color: eggData.displayColor || '#FFFFFF',
-        screenX,
-        screenY
-      })
-    }
-  } else {
-    hideTooltip()
-  }
+// 获取 tooltip 头像完整 URL
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000'
+const getTooltipAvatarUrl = (avatar: string): string => {
+  if (avatar.startsWith('http')) return avatar
+  return `${API_BASE_URL}${avatar}`
 }
 
 // 获取状态文本
@@ -515,56 +534,91 @@ const getStatusText = (status?: string) => {
   }
 }
 
-// 监听 camera 和 scene 变化
-watch(camera, (newCamera) => {
-  if (newCamera) cameraRef = newCamera
-}, { immediate: true })
-
-watch(scene, (newScene) => {
-  if (newScene) {
-    sceneRef = newScene
-    // 添加鼠标移动监听
-    setTimeout(() => {
-      const canvas = document.querySelector('.scene-layer canvas') as HTMLCanvasElement | null
-      if (canvas) {
-        canvas.addEventListener('mousemove', handleMouseMove as EventListener)
-      }
-    }, 100)
+// 处理蛋的 hover 事件
+const handleEggHover = (payload: { visible: boolean; event?: PointerEvent; data?: Idea }) => {
+  // 如果详情弹窗已打开，不显示 tooltip
+  if (detailVisible.value) {
+    return
   }
-}, { immediate: true })
-
-// 清理事件监听
-onUnmounted(() => {
-  const canvas = document.querySelector('.scene-layer canvas') as HTMLCanvasElement | null
-  if (canvas) {
-    canvas.removeEventListener('mousemove', handleMouseMove as EventListener)
+  
+  if (!payload.visible) {
+    hideTooltip()
+    return
   }
-})
+  
+  if (payload.event && payload.data) {
+    const event = payload.event
+    const idea = payload.data
+    
+    console.log('🔍 Tooltip hover 数据:', {
+      title: idea.title,
+      creator_name: idea.creator_name,
+      creator_avatar: idea.creator_avatar,
+    })
+    
+    // 直接使用屏幕坐标（TresJS 封装好的）
+    showTooltip({
+      title: idea.title,
+      creator: idea.creator_name || '未知',
+      avatar: idea.creator_avatar || null,
+      statusText: getStatusText(idea.eggStatus),
+      color: idea.displayColor || '#FFFFFF',
+      screenX: event.clientX,
+      screenY: event.clientY - 20 // 稍微向上偏移
+    })
+  }
+}
 
 const userStore = useUserStore()
 
 // 登录状态
 const isLoggedIn = ref(false)
 
+// 监听 store 登录态变化，自动同步到本地并跳转页面
+watch(() => userStore.isLoggedIn, (loggedIn: boolean) => {
+  isLoggedIn.value = loggedIn
+})
+
+// Loading 状态
+const isLoading = ref(false)
+const loadingProgress = ref(0)
+
+// 相机位置 - 入场动画用（初始位置：45度角稍远处）
+const cameraPosition = ref<[number, number, number]>([
+  Math.sin(Math.PI / 4) * 40, // 45度角 x
+  25, // 稍高
+  Math.cos(Math.PI / 4) * 40  // 45度角 z
+])
+const isCameraAnimating = ref(false)
+
 // 初始化时检查登录状态
 onMounted(() => {
   userStore.initFromStorage()
-  isLoggedIn.value = userStore.isLoggedIn
 
-  // 如果已登录，初始化物理世界并加载蛋数据
-  if (isLoggedIn.value) {
-    initPhysics()
-    loadEggs()
+  // 如果已登录，显示 loading 并启动入场动画
+  if (userStore.isLoggedIn) {
+    isLoading.value = true
+    loadingProgress.value = 0
+    // 重置相机到初始位置（45度角稍远处）
+    cameraPosition.value = [
+      Math.sin(Math.PI / 4) * 40,
+      25,
+      Math.cos(Math.PI / 4) * 40
+    ]
+    // 启动 loading 动画和相机动画
+    startLoadingAnimation()
   }
 })
 
 // 登录成功处理
 const handleLoginSuccess = () => {
   isLoggedIn.value = true
-  // 初始化物理世界
-  initPhysics()
-  // 加载蛋池列表和蛋数据
-  loadPools()
+  // 显示 loading
+  isLoading.value = true
+  loadingProgress.value = 0
+  
+  // 开始加载动画
+  startLoadingAnimation()
 }
 
 // Canvas 配置
@@ -587,18 +641,50 @@ const isSearchHovered = ref(false)
 const addDialogVisible = ref(false)
 const showProfileDrawer = ref(false)
 const showPoolSwitchDrawer = ref(false)
+const showFriendModal = ref(false)
+
+// ========== 好友申请数量 ==========
+const pendingFriendCount = ref(0)
+
+// 加载待处理的好友申请数量
+const loadPendingFriendCount = async () => {
+  if (!isLoggedIn.value) return
+  try {
+    const result = await friendApi.getPendingRequests()
+    pendingFriendCount.value = result.data.length
+  } catch (error) {
+    console.error('加载好友申请数量失败:', error)
+  }
+}
+
+// 定时刷新好友申请数量
+let friendCountTimer: number | null = null
+const startFriendCountPolling = () => {
+  loadPendingFriendCount()
+  friendCountTimer = window.setInterval(loadPendingFriendCount, 30000) // 每30秒刷新
+}
+const stopFriendCountPolling = () => {
+  if (friendCountTimer) {
+    clearInterval(friendCountTimer)
+    friendCountTimer = null
+  }
+}
 
 // ========== 蛋池相关状态 ==========
 const pools = ref<EggPool[]>([])
 const currentPoolId = ref<number | null>(null)
 const currentPool = computed(() => pools.value.find(p => p.id === currentPoolId.value))
 // 计算用户创建的私人蛋池数量
-const privatePoolCount = computed(() => 
-  pools.value.filter(p => p.type === 'private' && p.is_owner).length
+const privatePoolCount = computed(() =>
+  pools.value.filter(p => p.type === 'private' && p.membership_type === 'owner').length
 )
+// 分类的蛋池列表
+const myCreatedPools = computed(() => pools.value.filter(p => p.membership_type === 'owner'))
+const myJoinedPools = computed(() => pools.value.filter(p => p.membership_type === 'member'))
+const publicPools = computed(() => pools.value.filter(p => p.membership_type === 'public'))
 const showCreatePoolDialog = ref(false)
 const newPoolName = ref('')
-const newPoolType = ref<'private'>('private')
+// const newPoolType = ref<'private'>('private')
 const isLoadingPools = ref(false)
 
 // 加载蛋池列表
@@ -623,17 +709,18 @@ const loadPools = async () => {
   }
 }
 
-// 切换蛋池 - 丝滑过渡
-const handlePoolChange = async (poolId: number | null) => {
-  if (poolId === currentPoolId.value) return
-  await switchToPool(poolId)
-}
+// // 切换蛋池 - 丝滑过渡
+// const handlePoolChange = async (poolId: number | null) => {
+//   if (poolId === currentPoolId.value) return
+//   await switchToPool(poolId)
+// }
 
 // 丝滑切换到指定蛋池
 const isSwitchingPool = ref(false)
 const poolLoading = ref(false)
 const sceneKey = ref(0)
 
+// 监听 sceneKey 变化，在场景重新渲染后重新绑定事件
 const switchToPool = async (poolId: number | null) => {
   if (isSwitchingPool.value) return
   if (poolId === currentPoolId.value && ideas.value.length > 0) return
@@ -700,7 +787,9 @@ const loadEggsByPool = async (poolId: number) => {
       position: [Number(egg.pos_x), Number(egg.pos_y), Number(egg.pos_z)] as [number, number, number],
       status: 'active',
       displayColor: egg.displayColor,
-      eggStatus: egg.status
+      eggStatus: egg.status,
+      creator_name: egg.creator_name,
+      creator_avatar: egg.creator_avatar || null
     }))
   } catch (error: any) {
     console.error('加载蛋池蛋数据失败:', error)
@@ -759,6 +848,14 @@ const loadEggs = async () => {
   try {
     const eggs = await eggApi.getEggs()
     console.log('从数据库加载蛋:', eggs)
+    // 调试：检查第一个蛋是否包含 creator_avatar
+    if (eggs.length > 0) {
+      console.log('🥚 creator_avatar 调试:', {
+        name: eggs[0].name,
+        creator_name: eggs[0].creator_name,
+        creator_avatar: eggs[0].creator_avatar
+      })
+    }
 
     // 转换数据库格式为前端格式
     const loadedIdeas: Idea[] = eggs.map(egg => ({
@@ -770,7 +867,9 @@ const loadEggs = async () => {
       position: [Number(egg.pos_x), Number(egg.pos_y), Number(egg.pos_z)] as [number, number, number],
       status: 'active',
       displayColor: egg.displayColor,
-      eggStatus: egg.status
+      eggStatus: egg.status,
+      creator_name: egg.creator_name,
+      creator_avatar: egg.creator_avatar || null
     }))
 
     ideas.value.push(...loadedIdeas)
@@ -840,7 +939,9 @@ const handleCreateIdea = async () => {
       content: newIdeaContent.value.trim(),
       createTime: Date.now(),
       position: position,
-      status: 'active'
+      status: 'active',
+      creator_name: userStore.user?.username || '未知',
+      creator_avatar: userStore.user?.avatar || null
     }
 
     ideas.value.push(idea)
@@ -857,6 +958,9 @@ const handleCreateIdea = async () => {
 const handleEggClick = async (idea: Idea) => {
   selectedIdea.value = idea
   detailVisible.value = true
+  
+  // 隐藏 hover tooltip
+  hideTooltip()
 
   // 如果有数据库ID，获取详情
   if (idea.dbId) {
@@ -902,11 +1006,89 @@ const handleAnimationComplete = (ideaId: string) => {
   }
 }
 
+// 加载动画逻辑
+let loadingRafId: number | null = null
+let loadingStartTime: number | null = null
+const LOADING_DURATION = 2500 // 2.5秒加载时间
+
+const startLoadingAnimation = () => {
+  loadingStartTime = Date.now()
+  isCameraAnimating.value = true
+  
+  const animate = () => {
+    const elapsed = Date.now() - (loadingStartTime || 0)
+    const progress = Math.min(elapsed / LOADING_DURATION, 1)
+    
+    loadingProgress.value = progress
+    
+    // 相机动画：从45度角稍远处平滑过渡到目标位置
+    // 起始位置：45度角，稍远
+    const startRadius = 40
+    const startHeight = 25
+    const startAngle = Math.PI / 4 // 45度
+    
+    // 目标位置
+    const endRadius = 20
+    const endHeight = 8
+    const endAngle = 0
+    
+    // 使用缓动函数让过渡更平滑
+    const easeProgress = 1 - Math.pow(1 - progress, 3) // cubic ease out
+    
+    const radius = startRadius - (startRadius - endRadius) * easeProgress
+    const height = startHeight - (startHeight - endHeight) * easeProgress
+    const angle = startAngle - (startAngle - endAngle) * easeProgress
+    
+    cameraPosition.value = [
+      Math.sin(angle) * radius,
+      height,
+      Math.cos(angle) * radius
+    ]
+    
+    if (progress < 1) {
+      loadingRafId = requestAnimationFrame(animate)
+    } else {
+      // 加载完成
+      finishLoading()
+    }
+  }
+  
+  animate()
+}
+
+const finishLoading = () => {
+  // 取消动画帧
+  if (loadingRafId) {
+    cancelAnimationFrame(loadingRafId)
+    loadingRafId = null
+  }
+  
+  isLoading.value = false
+  isCameraAnimating.value = false
+  // 确保相机最终位置
+  cameraPosition.value = [0, 8, 20]
+  
+  // 初始化物理世界
+  initPhysics()
+  // 加载蛋池列表和蛋数据
+  loadPools()
+  // 开始轮询好友申请数量
+  startFriendCountPolling()
+}
+
+
+
 // 处理登出
 const handleLogout = () => {
   isLoggedIn.value = false
   ideas.value = []
+  pools.value = []
+  currentPoolId.value = null
+  sceneKey.value++
   destroyPhysics()
+  // 停止轮询好友申请数量
+  stopFriendCountPolling()
+  pendingFriendCount.value = 0
 }
 </script>
 
@@ -1432,7 +1614,7 @@ const handleLogout = () => {
   flex-shrink: 0;
   position: relative;
   z-index: 10;
-  
+
   .fab-icon {
     width: 28px;
     height: 28px;
@@ -1444,6 +1626,39 @@ const handleLogout = () => {
     background: rgba(255, 255, 255, 0.3);
     box-shadow: 0 6px 40px rgba(0, 0, 0, 0.2);
   }
+}
+
+// 子按钮徽章
+.fab-badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  background: #ff4d4f;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(255, 77, 79, 0.4);
+  z-index: 20;
+}
+
+// 主按钮徽章（小红点）
+.fab-main-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 10px;
+  height: 10px;
+  background: #ff4d4f;
+  border-radius: 50%;
+  box-shadow: 0 2px 4px rgba(255, 77, 79, 0.4);
+  z-index: 20;
 }
 
 // 磨砂弹窗样式 - 白色磨砂基调
@@ -1646,21 +1861,46 @@ const handleLogout = () => {
     -webkit-backdrop-filter: blur(30px);
     border-left: 1px solid rgba(255, 255, 255, 0.5);
   }
-  
+
   :deep(.t-drawer__header) {
     color: rgba(0, 0, 0, 0.85);
     border-bottom: 1px solid rgba(0, 0, 0, 0.08);
     font-weight: 600;
   }
-  
+
   :deep(.t-drawer__close-btn) {
     color: rgba(0, 0, 0, 0.4);
-    
+
     &:hover {
       color: rgba(0, 0, 0, 0.7);
       background: rgba(0, 0, 0, 0.05);
     }
   }
+}
+
+// 蛋池分组样式
+.pool-group {
+  margin-bottom: 20px;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.pool-group-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.4);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 8px 4px 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  margin-bottom: 8px;
+}
+
+.pool-item-member {
+  color: #00c8ff;
+  font-weight: 500;
 }
 
 .pool-list {
@@ -1739,63 +1979,11 @@ const handleLogout = () => {
   color: #fff;
 }
 
-// ========== iOS 风格 Tooltip 样式 ==========
+// ========== iOS 风格 Tooltip 样式（主要定义在 global.less）==========
 .ios-tooltip-wrapper {
   position: fixed;
   z-index: 9999;
   pointer-events: none;
-}
-
-.ios-tooltip {
-  position: relative;
-  background: rgba(0, 0, 0, 0.8);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-radius: 12px;
-  padding: 12px 16px;
-  box-shadow: 
-    0 4px 20px rgba(0, 0, 0, 0.3),
-    0 0 0 0.5px rgba(255, 255, 255, 0.1) inset;
-  min-width: 140px;
-  max-width: 200px;
-}
-
-.ios-tooltip-content {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.ios-tooltip-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: #fff;
-  line-height: 1.3;
-}
-
-.ios-tooltip-meta {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.6);
-  line-height: 1.3;
-}
-
-.ios-tooltip-status {
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1.3;
-  margin-top: 2px;
-}
-
-.ios-tooltip-arrow {
-  position: absolute;
-  bottom: -6px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 0;
-  height: 0;
-  border-left: 6px solid transparent;
-  border-right: 6px solid transparent;
-  border-top: 6px solid rgba(0, 0, 0, 0.8);
 }
 
 // Tooltip 动画
@@ -1814,6 +2002,18 @@ const handleLogout = () => {
 .tooltip-fade-leave-from {
   opacity: 1;
   transform: translate(-50%, -100%) scale(1);
+}
+
+// Loading 过渡动画
+.loading-fade-enter-active,
+.loading-fade-leave-active {
+  transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.loading-fade-enter-from,
+.loading-fade-leave-to {
+  opacity: 0;
+  transform: scale(1.05);
 }
 
 </style>

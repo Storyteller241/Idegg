@@ -9,6 +9,8 @@ export interface Idea {
   status: 'active' | 'broken'
   displayColor?: string  // 后端返回的颜色
   eggStatus?: string     // 后端返回的状态
+  creator_name?: string  // 创建者名称
+  creator_avatar?: string | null // 创建者头像
 }
 
 // 人类评分数据

@@ -65,6 +65,7 @@ const props = defineProps<Props>()
 const emit = defineEmits<{
   click: [idea: Idea]
   animationComplete: [ideaId: string]
+  hover: [payload: { visible: boolean; event?: PointerEvent; data?: Idea }]
 }>()
 
 const isHovered = ref(false)
@@ -91,13 +92,15 @@ watch(eggMeshRef, (mesh) => {
 }, { immediate: true })
 
 // 指针进入处理
-const handlePointerOver = () => {
+const handlePointerOver = (event: PointerEvent) => {
   isHovered.value = true
+  emit('hover', { visible: true, event, data: props.ideaData })
 }
 
 // 指针离开处理
 const handlePointerLeave = () => {
   isHovered.value = false
+  emit('hover', { visible: false })
 }
 
 const { position, pausePhysics, resumePhysics, setSensor, setPosition, destroy } = usePhysicsEgg(props.ideaData)

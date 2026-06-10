@@ -72,15 +72,17 @@ function createGround() {
   groundBody.position.set(0, -2, 0) // 地面在 y = -2
   world.addBody(groundBody)
 
-  // 创建边界墙（防止蛋滚太远）
+  // 创建边界墙（防止蛋滚出圆盘范围）
+  // 地面圆盘半径为 25，边界墙设置在 23 处（留出一点边距）
   const wallHeight = 2
   const wallThickness = 0.5
-  const wallDistance = 10
+  const wallDistance = 23
+  const wallHalfSize = 23 // 墙的半长，与边界距离匹配
 
   // 后墙
   const backWall = new CANNON.Body({
     type: CANNON.Body.STATIC,
-    shape: new CANNON.Box(new CANNON.Vec3(15, wallHeight, wallThickness)),
+    shape: new CANNON.Box(new CANNON.Vec3(wallHalfSize, wallHeight, wallThickness)),
   })
   backWall.position.set(0, 0, -wallDistance)
   world.addBody(backWall)
@@ -88,7 +90,7 @@ function createGround() {
   // 前墙
   const frontWall = new CANNON.Body({
     type: CANNON.Body.STATIC,
-    shape: new CANNON.Box(new CANNON.Vec3(15, wallHeight, wallThickness)),
+    shape: new CANNON.Box(new CANNON.Vec3(wallHalfSize, wallHeight, wallThickness)),
   })
   frontWall.position.set(0, 0, wallDistance)
   world.addBody(frontWall)
@@ -96,7 +98,7 @@ function createGround() {
   // 左墙
   const leftWall = new CANNON.Body({
     type: CANNON.Body.STATIC,
-    shape: new CANNON.Box(new CANNON.Vec3(wallThickness, wallHeight, 15)),
+    shape: new CANNON.Box(new CANNON.Vec3(wallThickness, wallHeight, wallHalfSize)),
   })
   leftWall.position.set(-wallDistance, 0, 0)
   world.addBody(leftWall)
@@ -104,7 +106,7 @@ function createGround() {
   // 右墙
   const rightWall = new CANNON.Body({
     type: CANNON.Body.STATIC,
-    shape: new CANNON.Box(new CANNON.Vec3(wallThickness, wallHeight, 15)),
+    shape: new CANNON.Box(new CANNON.Vec3(wallThickness, wallHeight, wallHalfSize)),
   })
   rightWall.position.set(wallDistance, 0, 0)
   world.addBody(rightWall)

@@ -24,6 +24,11 @@ async function request<T>(url: string, options?: RequestInit, auth: boolean = fa
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: '请求失败' }))
+    // 401/403 表示 token 过期或无效，清除登录态
+    if (response.status === 401 || response.status === 403) {
+      const userStore = useUserStore()
+      userStore.logout()
+    }
     throw new Error(error.message || `HTTP error! status: ${response.status}`)
   }
 
@@ -73,13 +78,21 @@ export interface EggPool {
   owner_name?: string
   created_at: string
   is_owner?: boolean
+  membership_type?: 'owner' | 'member' | 'public' // 我创建的 / 我加入的 / 公共
+}
+
+// 分类的蛋池列表
+export interface CategorizedPools {
+  my_created: EggPool[]
+  my_joined: EggPool[]
+  public: EggPool[]
 }
 
 // API 方法
 export const eggApi = {
-  // 获取所有蛋
+  // 获取所有蛋（需要认证，带时间戳防缓存）
   getEggs(): Promise<EggData[]> {
-    return request<EggData[]>('/get-eggs')
+    return request<EggData[]>(`/get-eggs?t=${Date.now()}`, {}, true)
   },
 
   // 新增蛋（需要认证）
@@ -141,9 +154,9 @@ export const eggApi = {
 
   // ========== 蛋池 (Pool) 相关接口 ==========
 
-  // 获取蛋池列表
-  getPools(): Promise<{ status: string; data: EggPool[] }> {
-    return request<{ status: string; data: EggPool[] }>('/pools', {}, true)
+  // 获取蛋池列表（包含分类数据）
+  getPools(): Promise<{ status: string; data: EggPool[]; categorized: CategorizedPools }> {
+    return request<{ status: string; data: EggPool[]; categorized: CategorizedPools }>('/pools', {}, true)
   },
 
   // 创建蛋池
@@ -203,5 +216,105 @@ export const eggApi = {
   // 获取指定蛋池的蛋列表（带时间戳防止缓存）
   getEggsByPool(poolId: number): Promise<EggData[]> {
     return request<EggData[]>(`/get-eggs?pool_id=${poolId}&t=${Date.now()}`, {}, true)
+  },
+
+  // ========== AI 分析接口 ==========
+
+  // 获取缓存的 AI 分析结果
+  getCachedAnalysis(eggId: number): Promise<{
+    status: string
+    data: {
+      content: string
+      created_at: string
+      is_stale: boolean
+    } | null
+  }> {
+    return request<{ status: string; data: { content: string; created_at: string; is_stale: boolean } | null }>(
+      `/eggs/${eggId}/analysis`, {}, true
+    )
+  },
+
+  /**
+   * AI 分析蛋 - SSE 流式输出
+   * @param eggId 蛋的 ID
+   * @param onChunk 每收到一段文字时的回调
+   * @param onDone 完成时的回调
+   * @param onError 错误时的回调
+   * @returns AbortController，可用于取消请求
+   */
+  analyzeEgg(
+    eggId: number,
+    onChunk: (text: string) => void,
+    onDone: () => void,
+    onError: (error: string) => void
+  ): AbortController {
+    const controller = new AbortController()
+    const userStore = useUserStore()
+    const token = userStore.token
+
+    fetch(`${API_BASE_URL}/eggs/${eggId}/analyze`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': token ? `Bearer ${token}` : '',
+      },
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ message: '请求失败' }))
+          throw new Error(errorData.message || `HTTP error! status: ${response.status}`)
+        }
+
+        const reader = response.body?.getReader()
+        if (!reader) throw new Error('无法读取响应流')
+
+        const decoder = new TextDecoder()
+        let buffer = ''
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          buffer += decoder.decode(value, { stream: true })
+
+          // 解析 SSE 数据
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || '' // 保留不完整的行
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6).trim()
+
+              if (data === '[DONE]') {
+                onDone()
+                return
+              }
+
+              try {
+                const parsed = JSON.parse(data)
+                if (parsed.content) {
+                  onChunk(parsed.content)
+                }
+                if (parsed.error) {
+                  onError(parsed.error)
+                  return
+                }
+              } catch {
+                // 解析失败，跳过
+              }
+            }
+          }
+        }
+
+        onDone()
+      })
+      .catch((error) => {
+        if (error.name !== 'AbortError') {
+          onError(error.message || 'AI 分析请求失败')
+        }
+      })
+
+    return controller
   },
 }

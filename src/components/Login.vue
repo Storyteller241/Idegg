@@ -326,6 +326,11 @@ onMounted(() => {
     rememberAccount.value = true
   }
 
+  // 重置登录状态，确保退出后能正确显示登录页
+  isLoggingIn.value = false
+  isShaking.value = true
+  isSpinning.value = false
+  spinSpeed.value = 3
   shakeStartTime = Date.now()
 })
 </script>

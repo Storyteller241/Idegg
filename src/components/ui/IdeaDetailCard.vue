@@ -46,33 +46,47 @@
             </div>
 
             <!-- AI 分析卡片 -->
-            <div class="ai-card" :class="{ 'loading': isAnalyzing }">
+            <div class="ai-card" :class="{ 'ai-streaming': isAnalyzing, 'ai-done': !isAnalyzing && aiContent }">
               <div class="ai-header">
                 <span class="ai-icon">🪄</span>
-                <span class="ai-title">AI Insight</span>
+                <span class="ai-title">AI 导师分析</span>
+                <button
+                  v-if="!isAnalyzing && aiContent"
+                  class="ai-retry-btn"
+                  @click="startStreamAnalysis"
+                  title="重新分析"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                    <polyline points="23 4 23 10 17 10" />
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                  </svg>
+                </button>
               </div>
-              <div v-if="isAnalyzing" class="ai-loading">
-                <div class="loading-dots">
-                  <span></span>
-                  <span></span>
-                  <span></span>
+              <!-- 流式加载中 -->
+              <div v-if="isAnalyzing && !aiContent" class="ai-loading">
+                <div class="egg-pulse">
+                  <div class="pulse-ring"></div>
+                  <div class="pulse-ring delay"></div>
+                  <span class="pulse-egg">🥚</span>
                 </div>
-                <span class="loading-text">AI 正在分析可行性...</span>
+                <span class="loading-text">AI 正在思考...</span>
               </div>
-              <div v-else-if="aiAnalysis" class="ai-content">
-                <div class="ai-score">
-                  <div class="score-ring" :style="{ '--score': aiAnalysis.score + '%' }">
-                    <span class="score-value">{{ aiAnalysis.score }}</span>
-                  </div>
-                  <span class="score-label">可行性评分</span>
+              <!-- 流式内容 -->
+              <div v-else-if="aiContent" class="ai-stream-content">
+                <div v-if="aiIsStale" class="ai-stale-hint">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="8" x2="12" y2="12" />
+                    <line x1="12" y1="16" x2="12.01" y2="16" />
+                  </svg>
+                  <span>技能信息已更新，结果可能已过期</span>
+                  <button class="stale-retry-btn" @click="startStreamAnalysis">重新分析</button>
                 </div>
-                <div class="ai-tags" v-if="aiAnalysis.tags?.length">
-                  <span v-for="tag in aiAnalysis.tags" :key="tag" class="ai-tag">{{ tag }}</span>
-                </div>
-                <div class="ai-comment">{{ aiAnalysis.comment }}</div>
+                <div class="ai-markdown" v-html="renderMarkdown(aiContent)"></div>
+                <span v-if="isAnalyzing" class="streaming-cursor"></span>
               </div>
               <div v-else class="ai-empty">
-                暂无 AI 分析数据
+                点击重试，让 AI 导师分析你的 Idea
               </div>
             </div>
 
@@ -225,16 +239,17 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
 import { useUserStore } from '../../stores/user'
 import { eggApi, type Comment, type EggData } from '../../api/eggApi'
 import type { Idea } from '../../types'
+import { marked } from 'marked'
 
-interface AIAnalysis {
-  score: number
-  tags: string[]
-  comment: string
-}
+// AI 分析状态
+const aiContent = ref('')
+const isAnalyzing = ref(false)
+const aiIsStale = ref(false)
+let aiController: AbortController | null = null
 
 const props = defineProps<{
   visible: boolean
@@ -254,8 +269,6 @@ const comments = ref<Comment[]>([])
 const newComment = ref('')
 const isLoadingComments = ref(false)
 const isSubmittingComment = ref(false)
-const isAnalyzing = ref(false)
-const aiAnalysis = ref<AIAnalysis | null>(null)
 
 // 评分相关状态
 const hoverRating = ref(0)
@@ -300,12 +313,13 @@ const formatTime = (timestamp: number | undefined): string => {
 
 // API 基础 URL
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
+const ASSET_BASE_URL = import.meta.env.VITE_ASSET_BASE_URL || API_BASE_URL
 
 // 获取完整头像 URL
 const getAvatarUrl = (avatar: string | null): string => {
   if (!avatar) return ''
   if (avatar.startsWith('http')) return avatar
-  return `${API_BASE_URL}${avatar}`
+  return `${ASSET_BASE_URL}${avatar}`
 }
 
 // 格式化评论时间
@@ -351,37 +365,71 @@ const loadComments = async () => {
   }
 }
 
-// 模拟 AI 分析
+// Markdown 渲染
+const renderMarkdown = (text: string): string => {
+  return marked.parse(text, { async: false }) as string
+}
+
+// 先查缓存，有缓存直接显示，无缓存则流式分析
 const loadAIAnalysis = async () => {
-  if (!props.idea) return
+  if (!props.idea?.dbId) return
 
-  isAnalyzing.value = true
-  aiAnalysis.value = null
+  aiContent.value = ''
+  aiIsStale.value = false
 
-  // 模拟延迟
-  setTimeout(() => {
-    // 生成随机分析结果
-    const scores = [65, 72, 78, 85, 88, 91, 94]
-    const tags = [
-      ['技术可行', '市场需求高'],
-      ['创新性强', '实现难度中等'],
-      ['商业潜力大', '用户体验好'],
-      ['前沿技术', '竞争较少']
-    ]
-    const comments = [
-      '这个想法很有创意，技术实现路径清晰，建议尽快推进 MVP 验证。',
-      '市场需求明确，但需要注意竞品分析，找到差异化定位。',
-      '技术栈选择合理，团队技能匹配度高，可行性较强。',
-      '概念新颖，建议先做用户调研验证需求真实性。'
-    ]
-
-    aiAnalysis.value = {
-      score: scores[Math.floor(Math.random() * scores.length)],
-      tags: tags[Math.floor(Math.random() * tags.length)],
-      comment: comments[Math.floor(Math.random() * comments.length)]
+  try {
+    const result = await eggApi.getCachedAnalysis(props.idea.dbId)
+    if (result.data) {
+      aiContent.value = result.data.content
+      aiIsStale.value = result.data.is_stale
+      return
     }
-    isAnalyzing.value = false
-  }, 2000)
+  } catch (e) {
+    // 缓存查询失败，降级到流式分析
+  }
+
+  // 无缓存，触发流式分析
+  startStreamAnalysis()
+}
+
+// SSE 流式 AI 分析
+const startStreamAnalysis = () => {
+  if (!props.idea?.dbId) return
+
+  stopStreamAnalysis()
+
+  aiContent.value = ''
+  aiIsStale.value = false
+  isAnalyzing.value = true
+  aiController = eggApi.analyzeEgg(
+    props.idea.dbId,
+    (text: string) => {
+      aiContent.value += text
+    },
+    () => {
+      isAnalyzing.value = false
+      aiController = null
+    },
+    (error: string) => {
+      console.error('AI 分析失败:', error)
+      isAnalyzing.value = false
+      aiController = null
+      if (aiContent.value) {
+        aiContent.value += `\n\n> ⚠️ 分析中断：${error}`
+      } else {
+        aiContent.value = `> ⚠️ 分析失败：${error}`
+      }
+    }
+  )
+}
+
+// 停止流式分析
+const stopStreamAnalysis = () => {
+  if (aiController) {
+    aiController.abort()
+    aiController = null
+  }
+  isAnalyzing.value = false
 }
 
 // 提交评论
@@ -417,11 +465,12 @@ const handleDeleteComment = async (commentId: number) => {
 
 // 关闭弹窗
 const handleClose = () => {
+  stopStreamAnalysis()
   emit('update:visible', false)
   // 清空数据
   eggDetail.value = null
   comments.value = []
-  aiAnalysis.value = null
+  aiContent.value = ''
   newComment.value = ''
   // 重置评分状态
   hoverRating.value = 0
@@ -475,10 +524,28 @@ const handleRate = async (score: number) => {
 
 // 打碎蛋
 const handleBreak = () => {
-  if (props.idea) {
-    emit('break', props.idea)
-    emit('update:visible', false)
-  }
+  if (!props.idea) return
+  
+  const confirmDialog = DialogPlugin.confirm({
+    header: '确认打碎蛋',
+    body: '打碎后蛋将消失，这个操作不可恢复，确定要打碎吗？',
+    confirmBtn: {
+      content: '确认打碎',
+      theme: 'danger',
+    },
+    cancelBtn: {
+      content: '取消',
+      theme: 'default',
+    },
+    onConfirm: () => {
+      emit('break', props.idea!)
+      emit('update:visible', false)
+      confirmDialog.destroy()
+    },
+    onCancel: () => {
+      confirmDialog.destroy()
+    },
+  })
 }
 
 // 监听 visible 变化
@@ -486,6 +553,7 @@ watch(() => props.visible, (newVal) => {
   if (newVal && props.idea) {
     loadEggDetail()
     loadComments()
+    // 查缓存 or 流式分析
     loadAIAnalysis()
   }
 })
@@ -695,11 +763,11 @@ watch(() => props.visible, (newVal) => {
   padding: 20px;
   margin-bottom: 24px;
   border: 1px solid rgba(0, 200, 255, 0.15);
+  transition: all 0.3s ease;
 
-  &.loading {
-    .ai-content {
-      opacity: 0.6;
-    }
+  &.ai-streaming {
+    border-color: rgba(0, 200, 255, 0.35);
+    box-shadow: 0 0 20px rgba(0, 200, 255, 0.1);
   }
 }
 
@@ -708,6 +776,219 @@ watch(() => props.visible, (newVal) => {
   align-items: center;
   gap: 8px;
   margin-bottom: 16px;
+}
+
+.ai-retry-btn {
+  margin-left: auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 200, 255, 0.12);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(0, 150, 255, 0.7);
+  transition: all 0.2s ease;
+
+  &:hover {
+    background: rgba(0, 200, 255, 0.25);
+    color: #0096ff;
+    transform: rotate(180deg);
+  }
+}
+
+.ai-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 24px 0;
+}
+
+// 蛋脉冲动画
+.egg-pulse {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pulse-egg {
+  font-size: 28px;
+  animation: eggBounce 1.2s ease-in-out infinite;
+  position: relative;
+  z-index: 1;
+}
+
+.pulse-ring {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 2px solid rgba(0, 200, 255, 0.4);
+  animation: pulseRing 1.5s ease-out infinite;
+
+  &.delay {
+    animation-delay: 0.5s;
+  }
+}
+
+@keyframes eggBounce {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-8px) scale(1.05);
+  }
+}
+
+@keyframes pulseRing {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+.loading-text {
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.5);
+  animation: textFade 1.5s ease-in-out infinite;
+}
+
+@keyframes textFade {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+// 流式内容区
+.ai-stream-content {
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.75);
+  line-height: 1.7;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 14px;
+  position: relative;
+
+  // Markdown 元素样式
+  :deep(h1), :deep(h2), :deep(h3) {
+    font-weight: 700;
+    color: rgba(0, 0, 0, 0.85);
+    margin: 12px 0 6px;
+    line-height: 1.4;
+  }
+  :deep(h1) { font-size: 18px; }
+  :deep(h2) { font-size: 16px; }
+  :deep(h3) { font-size: 15px; }
+
+  :deep(p) {
+    margin: 4px 0;
+  }
+
+  :deep(strong) {
+    color: rgba(0, 100, 180, 0.9);
+    font-weight: 600;
+  }
+
+  :deep(ul), :deep(ol) {
+    margin: 6px 0;
+    padding-left: 20px;
+  }
+
+  :deep(li) {
+    margin: 2px 0;
+  }
+
+  :deep(code) {
+    background: rgba(0, 0, 0, 0.06);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 13px;
+  }
+
+  :deep(pre) {
+    background: rgba(0, 0, 0, 0.05);
+    padding: 10px 14px;
+    border-radius: 8px;
+    overflow-x: auto;
+    margin: 8px 0;
+
+    code {
+      background: none;
+      padding: 0;
+    }
+  }
+
+  :deep(blockquote) {
+    border-left: 3px solid rgba(0, 150, 255, 0.3);
+    padding-left: 12px;
+    margin: 8px 0;
+    color: rgba(0, 0, 0, 0.55);
+  }
+
+  :deep(hr) {
+    border: none;
+    border-top: 1px solid rgba(0, 0, 0, 0.08);
+    margin: 10px 0;
+  }
+}
+
+// 缓存过期提示
+.ai-stale-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  background: rgba(255, 180, 0, 0.1);
+  border: 1px solid rgba(255, 180, 0, 0.25);
+  border-radius: 8px;
+  font-size: 12px;
+  color: rgba(180, 120, 0, 0.85);
+
+  svg { flex-shrink: 0; }
+}
+
+.stale-retry-btn {
+  margin-left: auto;
+  padding: 2px 10px;
+  border: 1px solid rgba(255, 180, 0, 0.4);
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(180, 120, 0, 0.9);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  &:hover {
+    background: rgba(255, 180, 0, 0.15);
+    border-color: rgba(255, 180, 0, 0.6);
+  }
+}
+
+// 打字光标
+.streaming-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 16px;
+  background: #0096ff;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: cursorBlink 0.8s step-end infinite;
+}
+
+@keyframes cursorBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
 }
 
 .ai-icon {
@@ -720,124 +1001,21 @@ watch(() => props.visible, (newVal) => {
   color: rgba(0, 150, 255, 0.9);
 }
 
-.ai-loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  padding: 20px;
-}
-
-.loading-dots {
-  display: flex;
-  gap: 6px;
-
-  span {
-    width: 8px;
-    height: 8px;
-    background: rgba(0, 150, 255, 0.6);
-    border-radius: 50%;
-    animation: bounce 1.4s ease-in-out infinite both;
-
-    &:nth-child(1) {
-      animation-delay: -0.32s;
-    }
-
-    &:nth-child(2) {
-      animation-delay: -0.16s;
-    }
-  }
-}
-
-@keyframes bounce {
-  0%, 80%, 100% {
-    transform: scale(0);
-  }
-  40% {
-    transform: scale(1);
-  }
-}
-
-.loading-text {
-  font-size: 13px;
-  color: rgba(0, 0, 0, 0.5);
-}
-
-.ai-content {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.ai-score {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.score-ring {
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  background: conic-gradient(
-    #00c8ff calc(var(--score) * 3.6deg),
-    rgba(0, 200, 255, 0.1) 0deg
-  );
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-
-  &::before {
-    content: '';
-    position: absolute;
-    width: 44px;
-    height: 44px;
-    background: rgba(255, 255, 255, 0.9);
-    border-radius: 50%;
-  }
-
-  .score-value {
-    position: relative;
-    font-size: 16px;
-    font-weight: 700;
-    color: #0096ff;
-  }
-}
-
-.score-label {
-  font-size: 13px;
-  color: rgba(0, 0, 0, 0.5);
-}
-
-.ai-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.ai-tag {
-  padding: 4px 12px;
-  background: rgba(0, 200, 255, 0.15);
-  border-radius: 12px;
-  font-size: 12px;
-  color: rgba(0, 150, 255, 0.9);
-}
-
-.ai-comment {
-  font-size: 14px;
-  color: rgba(0, 0, 0, 0.7);
-  line-height: 1.6;
-  padding: 12px;
-  background: rgba(255, 255, 255, 0.5);
-  border-radius: 12px;
-}
-
 .ai-empty {
   text-align: center;
   padding: 20px;
   font-size: 13px;
   color: rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  border: 1px dashed rgba(0, 200, 255, 0.25);
+  border-radius: 14px;
+  transition: all 0.2s ease;
+
+  &:hover {
+    border-color: rgba(0, 200, 255, 0.5);
+    color: rgba(0, 150, 255, 0.7);
+    background: rgba(0, 200, 255, 0.05);
+  }
 }
 
 // 人类评分卡片

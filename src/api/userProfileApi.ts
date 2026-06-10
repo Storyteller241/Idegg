@@ -6,7 +6,7 @@ export interface UserProfile {
   id: number
   username: string
   avatar: string | null
-  skills: string[]
+  skills: string
   bio: string | null
   created_at: string
   updated_at: string
@@ -15,7 +15,7 @@ export interface UserProfile {
 export interface UpdateProfileData {
   username?: string
   avatar?: string
-  skills?: string[]
+  skills?: string
   bio?: string
   currentPassword?: string
   newPassword?: string

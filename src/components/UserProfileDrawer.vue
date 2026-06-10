@@ -107,12 +107,11 @@
 
         <div class="form-item">
           <label>技术栈</label>
-          <t-tag-input
-            v-model="form.skills"
-            placeholder="输入技术栈，如 Vue 3, Golang, Three.js"
+          <t-input
+            v-model="skillsText"
+            placeholder="用逗号分隔，如 Vue 3, Golang, Three.js"
             size="large"
             clearable
-            :max="10"
           />
         </div>
 
@@ -178,7 +177,7 @@ const profile = ref<UserProfile>({
   id: 0,
   username: '',
   avatar: null,
-  skills: [],
+  skills: '',
   bio: null,
   created_at: '',
   updated_at: ''
@@ -188,12 +187,14 @@ const profile = ref<UserProfile>({
 const form = reactive({
   username: '',
   avatar: '',
-  skills: [] as string[],
   bio: '',
   currentPassword: '',
   newPassword: '',
   confirmPassword: ''
 })
+
+// 技术栈（字符串，逗号分隔）
+const skillsText = ref('')
 
 // 是否显示密码表单
 const showPasswordForm = ref(false)
@@ -214,7 +215,8 @@ const uploadHeaders = computed(() => ({
 const avatarUrl = computed(() => {
   if (!profile.value.avatar) return ''
   if (profile.value.avatar.startsWith('http')) return profile.value.avatar
-  return `${API_BASE_URL}${profile.value.avatar}`
+  const assetBaseUrl = import.meta.env.VITE_ASSET_BASE_URL || API_BASE_URL
+  return `${assetBaseUrl}${profile.value.avatar}`
 })
 
 // 上传前校验
@@ -281,7 +283,7 @@ const loadProfile = async () => {
     // 同步到表单
     form.username = data.username
     form.avatar = data.avatar || ''
-    form.skills = data.skills || []
+    skillsText.value = data.skills || ''
     form.bio = data.bio || ''
   } catch (error: any) {
     MessagePlugin.error(error.message || '加载资料失败')
@@ -330,8 +332,8 @@ const handleSave = async () => {
     const updateData: Parameters<typeof updateUserProfile>[0] = {
       username: form.username.trim(),
       avatar: form.avatar || undefined,
-      skills: form.skills,
-      bio: form.bio || undefined
+      skills: skillsText.value,
+      bio: form.bio
     }
 
     // 如果修改了密码
@@ -342,21 +344,23 @@ const handleSave = async () => {
 
     await updateUserProfile(updateData)
 
+    MessagePlugin.success('资料保存成功')
+
+    // 更新本地 profile 以保持同步
+    profile.value.skills = skillsText.value
+    profile.value.bio = form.bio
+    profile.value.username = form.username.trim()
+
     // 更新 store 中的用户名
     if (userStore.user && form.username !== userStore.user.username) {
       userStore.setUser({ ...userStore.user, username: form.username.trim() })
     }
-
-    MessagePlugin.success('资料保存成功')
 
     // 清空密码字段
     form.currentPassword = ''
     form.newPassword = ''
     form.confirmPassword = ''
     showPasswordForm.value = false
-
-    // 刷新资料
-    await loadProfile()
   } catch (error: any) {
     MessagePlugin.error(error.message || '保存失败')
   } finally {
@@ -569,13 +573,17 @@ onMounted(() => {
 
 // 底部操作区
 .drawer-footer {
+  position: sticky;
+  bottom: 0;
   display: flex;
   justify-content: flex-start;
   align-items: center;
   margin-top: 32px;
-  padding-top: 24px;
+  padding: 16px 0;
+  background: #fff;
   border-top: 1px solid rgba(0, 0, 0, 0.06);
   gap: 12px;
+  z-index: 10;
 }
 
 .logout-btn {

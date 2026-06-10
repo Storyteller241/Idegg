@@ -36,7 +36,8 @@ const avatarUrl = computed(() => {
   const avatar = userStore.user?.avatar
   if (!avatar) return ''
   if (avatar.startsWith('http')) return avatar
-  return `${API_BASE_URL}${avatar}`
+  const assetBaseUrl = import.meta.env.VITE_ASSET_BASE_URL || API_BASE_URL
+  return `${assetBaseUrl}${avatar}`
 })
 
 const handleClick = () => {

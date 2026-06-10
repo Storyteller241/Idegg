@@ -87,12 +87,191 @@ body {
   }
 }
 
+// ============================================
+// iOS 风格气泡提示 - 奶油磨砂玻璃材质
+// ============================================
+.ios-tooltip {
+  // 基础容器
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+
+  // 奶油磨砂背景
+  background-color: rgba(255, 255, 255, 0.7);
+
+  // 精致圆角
+  border-radius: 14px;
+
+  // 细微高光边缘
+  border: 1px solid rgba(255, 255, 255, 0.4);
+
+  // 核心磨砂效果
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+
+  // 精致悬浮阴影（柔和不刺眼）
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.05),
+    0 10px 30px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+
+  // 内容区域
+  &-content {
+    padding: 12px 16px;
+    min-width: 140px;
+    max-width: 240px;
+  }
+
+  // 头部（头像 + 信息）
+  &-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  // 头像
+  &-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    overflow: hidden;
+    flex-shrink: 0;
+    background: linear-gradient(135deg, #00c8ff, #0096ff);
+
+    img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+  }
+
+  &-avatar-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+  }
+
+  // 信息区域
+  &-info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  // 标题样式
+  &-title {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    color: #1D1D1F;
+    line-height: 1.4;
+    margin-bottom: 4px;
+    letter-spacing: -0.01em;
+  }
+
+  // 元信息（创建者等）
+  &-meta {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+    font-size: 13px;
+    color: #3A3A3C;
+    line-height: 1.4;
+    margin-bottom: 2px;
+  }
+
+  // 状态文字
+  &-status {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.4;
+    margin-top: 4px;
+  }
+
+  // 气泡小三角 - 底部居中指向蛋
+  &-arrow {
+    position: absolute;
+    bottom: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 12px;
+    height: 12px;
+
+    // 使用伪元素创建三角形
+    &::before {
+      content: '';
+      position: absolute;
+      width: 0;
+      height: 0;
+      border-left: 6px solid transparent;
+      border-right: 6px solid transparent;
+      border-top: 8px solid rgba(255, 255, 255, 0.7);
+      filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.05));
+    }
+
+    // 三角形的边框高光
+    &::after {
+      content: '';
+      position: absolute;
+      top: -1px;
+      left: 0;
+      width: 0;
+      height: 0;
+      border-left: 6px solid transparent;
+      border-right: 6px solid transparent;
+      border-top: 1px solid rgba(255, 255, 255, 0.4);
+    }
+  }
+
+  // 包装器定位（用于固定定位在屏幕上）
+  &-wrapper {
+    position: fixed;
+    z-index: 9999;
+    pointer-events: none;
+    transform: translate(-50%, -100%);
+    margin-top: -12px; // 向上偏移一点
+
+    // 入场动画
+    animation: ios-tooltip-enter 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+}
+
+// 气泡入场动画
+@keyframes ios-tooltip-enter {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -90%) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -100%) scale(1);
+  }
+}
+
+// TDesign Message 提示文字颜色
+.t-message {
+  .t-message__content {
+    color: #ccc !important;
+  }
+}
+
+// 针对 TDesign Message 组件的全局样式覆盖
+div.t-message {
+  .t-message__content {
+    color: #ccc !important;
+  }
+}
+
 // TDesign 主题定制
 :root {
   --td-brand-color: #7ea1d6;
   --td-brand-color-hover: #a5c1e7;
   --td-bg-color-container: rgba(255, 255, 255, 0.9);
-  --td-text-color-primary: #ffffff;
+  --td-text-color-primary: #2a3558;
   --td-text-color-secondary: rgba(255, 255, 255, 0.7);
   --td-border-level-1-color: rgba(255, 255, 255, 0.1);
 }
